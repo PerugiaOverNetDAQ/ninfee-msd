@@ -126,7 +126,7 @@ begin
   FE_synch_signals_proc : process (iCLK)
   begin
     if (rising_edge(iCLK)) then
-      sFpga2Fe.TestOn <= iCNT_Test;
+    sFpga2Fe.TestOn <= iCNT_Test;
 
       if (sFeState = HOLD or sFeState = SHIFT or sFeState = FIRST_CLOCK
           or sFeState = CLOCK_FORWARD or sFeState = SYNCH_END) then
@@ -358,6 +358,7 @@ begin
           sNextFeState <= wait4en(sCntIn.slwEn, SYNCH_END, COMPLETE);
         end if;
 
+      --FIXME: copy the ASTRA one
       when COMPLETE =>
         sNextFeState <= IDLE;
 

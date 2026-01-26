@@ -16,12 +16,12 @@ use work.basic_package.all;
 package FOOTpackage is
   constant cADC_DATA_WIDTH       : natural := 16;  --!ADC data-width
   constant cADC_FIFO_DEPTH       : natural := 256;  --!ADC FIFO number of words
-  constant cCOLL_FIFO_DEPTH      : natural := 2048;  --! numero totale massimo di parole da 16 bit nella fifo finale 1280??
+  constant cCOLL_FIFO_DEPTH      : natural := 2048;  --! numero totale massimo di parole da 16 bit nella fifo finale 1792??
   constant cFE_DAISY_CHAIN_DEPTH : natural := 2;   --!FEs in a daisy chain
   constant cFE_CHANNELS          : natural := 64;  --!Channels per FE
   constant cFE_CLOCK_CYCLES      : natural := cFE_DAISY_CHAIN_DEPTH*cFE_CHANNELS;  --!Number of clock cycles to feed a chain
   constant cFE_SHIFT_2_CLK       : natural := 2; --!Wait between FE shift and clock assertion
-  constant cTOTAL_ADCS           : natural := 10; --!Total ADCs
+  constant cTOTAL_ADCS           : natural := 14; --!Total ADCs
 
   constant cCLK_FREQ             : natural := 20; --!Clock frequency in ns (used only to compute delay)
   constant cMULT                  : natural := 320; --!Multiplier of the BUSY stretch in ns
