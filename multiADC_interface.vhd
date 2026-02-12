@@ -193,8 +193,11 @@ begin
         oPAR_DATA => sMultiSr(i).parOut
         );
 
-    sOutWord(i).data <= sMultiSr(i).parOut(cADC_DATA_WIDTH-3 downto 0) & "00"
-                          when (iFAST = '1') else
+    --sOutWord(i).data <= sMultiSr(i).parOut(cADC_DATA_WIDTH-3 downto 0) & "00"
+    --                      when (iFAST = '1') else
+    --                    sMultiSr(i).parOut;
+    sOutWord(i).data <= "00" & sMultiSr(i).parOut(cADC_DATA_WIDTH-3 downto 0)
+                        when (iFAST = '1') else
                         sMultiSr(i).parOut;
     sOutWord(i).wr   <= '1' when (sAdcState = WRITE_WORD) else
                         '0';
