@@ -1,4 +1,4 @@
---!@file multiADC_interface.vhd
+--!@file multiLTC2313_interface.vhd
 --!@brief Low-level interface for multiple ADCs (possibly, AD7276)
 --!@author Mattia Barbanera, mattia.barbanera@infn.it
 --!@date 16/06/2020
@@ -16,7 +16,7 @@ use work.FOOTpackage.all;
 --!@brief Low-level interface for multiple ADCs (possibly, AD7276)
 --!@details Serial interface with the 12-bit ADC.
 --!See the ADC datasheet for additional details
-entity multiADC_interface is
+entity multiLTC2313_interface is
   port (
     iCLK  : in  std_logic;                --!Main clock
     iRST  : in  std_logic;                --!Main reset
@@ -30,10 +30,11 @@ entity multiADC_interface is
     -- Word in output
     oMULTI_FIFO : out tMultiAdcFifoIn     --!Output data and write request
     );
-end multiADC_interface;
+end multiLTC2313_interface;
 
-architecture std of multiADC_interface is
+architecture std of multiLTC2313_interface is
   constant cCOUNT_INTERFACE : natural := 8;
+  constant cLTC2313_WIDTH : natural := 14;
 
   signal sCntIn    : tControlIntfIn;
   signal sCntOut   : tControlIntfOut;
@@ -41,7 +42,7 @@ architecture std of multiADC_interface is
   signal sAdc2Fpga : tMultiAdc2FpgaIntf;
   signal sOutWord  : tMultiAdcFifoIn;
 
-  type tFsmAdc is (RESET, IDLE, SAMPLE, WRITE_WORD);
+  type tFsmAdc is (RESET, IDLE, SAMPLE, READOUT, WRITE_WORD);
   signal sAdcState, sNextAdcState : tFsmAdc;
 
   --!@brief Wait for the enable assertion to change state
@@ -85,13 +86,15 @@ architecture std of multiADC_interface is
   --signal sSr    : tShiftRegInterface;
   signal sMultiSr : tMultiShiftRegIntf;
 
+  signal sSampleDuration : std_logic_vector(4 downto 0);
+
 begin
   -- Combinatorial assignments -------------------------------------------------
   oCNT   <= sCntOut;
   sCntIn <= iCNT;
 
   oADC.SClk <= sFpga2Adc.SClk;
-  oADC.Cs   <= not sFpga2Adc.Cs;
+  oADC.Cs   <= sFpga2Adc.Cs;
 
   sAdc2Fpga <= iMULTI_ADC;
 
@@ -103,7 +106,7 @@ begin
   ADC_synch_signals_proc : process (iCLK)
   begin
     if (rising_edge(iCLK)) then
-      if (sNextAdcState = SAMPLE) then
+      if (sNextAdcState = READOUT) then
         sFpga2Adc.SClk <= sCntIn.slwClk;
       else
         sFpga2Adc.SClk <= '1';
@@ -136,18 +139,24 @@ begin
         sCntOut.compl <= '0';
       end if;
 
-      if (sNextAdcState = SAMPLE) then
+      if (sNextAdcState = READOUT) then
         sSrEn <= sCntIn.slwEn;
       else
         sSrEn <= '0';
       end if;
 
+      if (sNextAdcState = SAMPLE) then
+        sSampleDuration <= sSampleDuration + 1;
+      else
+        sSampleDuration <= (others => '0');
+      end if;
+
     end if;
   end process ADC_synch_signals_proc;
 
-  sCountRst <= '1' when (sAdcState /= SAMPLE) else
+  sCountRst <= '1' when (sAdcState /= READOUT) else
                '0';
-  sCountIntf.en <= sCntIn.slwEn when (sAdcState = SAMPLE) else
+  sCountIntf.en <= sCntIn.slwEn when (sAdcState = READOUT) else
                    '0';
   sCountIntf.load   <= '0';
   sCountIntf.preset <= (others => '0');
@@ -167,7 +176,7 @@ begin
       oCARRY => sCountIntf.carry
       );
 
-  sSrRst <= '1' when (sAdcState = RESET or sAdcState = IDLE) else
+  sSrRst <= '1' when (sAdcState /= READOUT) else
             '0';
   --!@brief Generate multiple Shift-registers to sample the ADCs
   SR_GENERATE : for i in 0 to cTOTAL_ADCS-1 generate
@@ -237,24 +246,24 @@ begin
         else
           sNextAdcState <= IDLE;
         end if;
-
-      --Sample the incoming 16 bits
+      
+      --Wait for the start signal to be asserted
       when SAMPLE =>
-        if iFAST = '1' then
-          if (sCountIntf.count <
-              int2slv((cADC_DATA_WIDTH-2), sCountIntf.count'length)) then
-            sNextAdcState <= SAMPLE;
-          else
-            sNextAdcState <= wait4en(sCntIn.slwEn, SAMPLE, WRITE_WORD);
-          end if;
+        if (sSampleDuration <
+            int2slv((cLTC3213_CONV_CLK), sSampleDuration'length)) then
+          sNextAdcState <= SAMPLE;
         else
-          if (sCountIntf.count <
-              int2slv((cADC_DATA_WIDTH), sCountIntf.count'length)) then
-            sNextAdcState <= SAMPLE;
-          else
-            sNextAdcState <= wait4en(sCntIn.slwEn, SAMPLE, WRITE_WORD);
-          end if;  
-        end if ;
+        sNextAdcState <= READOUT;
+        end if;
+
+      --Readout the incoming 14 bits
+      when READOUT =>
+        if (sCountIntf.count <
+            int2slv((cADC_DATA_WIDTH-2-1), sCountIntf.count'length)) then
+          sNextAdcState <= READOUT;
+        else
+          sNextAdcState <= wait4en(sCntIn.slwEn, READOUT, WRITE_WORD);
+        end if;
 
       --Write the deserialized word in output
       when WRITE_WORD =>

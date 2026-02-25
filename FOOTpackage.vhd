@@ -8,6 +8,7 @@
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
+use ieee.math_real.all;
 use ieee.std_logic_unsigned.all;
 
 use work.basic_package.all;
@@ -23,14 +24,16 @@ package FOOTpackage is
   constant cFE_SHIFT_2_CLK       : natural := 2; --!Wait between FE shift and clock assertion
   constant cTOTAL_ADCS           : natural := 14; --!Total ADCs
 
-  constant cCLK_FREQ             : natural := 20; --!Clock frequency in ns (used only to compute delay)
+  constant cCLK_FREQ              : natural := 20; --!Clock frequency in ns (used only to compute delay)
   constant cMULT                  : natural := 320; --!Multiplier of the BUSY stretch in ns
+  constant cLTC3213_CONV_TIME     : natural := 225; --!Conversion time of the LTC3213 in ns
+  constant cLTC3213_CONV_CLK      : natural := natural(ceil(real(cLTC3213_CONV_TIME/cCLK_FREQ)))+1; --!Conversion time of the LTC3213 in ns
 
-  constant cFE_CLK_DIV   : std_logic_vector(15 downto 0) := int2slv(34, 16); --!FE SlowClock divider: was 160 at the GSI test beam
+  constant cFE_CLK_DIV   : std_logic_vector(15 downto 0) := int2slv(44, 16); --!FE SlowClock divider: was 160 at the GSI test beam
   constant cADC_CLK_DIV  : std_logic_vector(15 downto 0) := int2slv(2, 16);  --!ADC SlowClock divider
   constant cFE_CLK_DUTY  : std_logic_vector(15 downto 0) := int2slv(8, 16);  --!FE SlowClock duty cycle
   constant cADC_CLK_DUTY : std_logic_vector(15 downto 0) := int2slv(1, 16);  --!ADC SlowClock duty cycle
-  constant cADC_DELAY    : std_logic_vector(15 downto 0) := int2slv(29, 16);  --!Delay from the FE falling edge and the start of the AD conversion
+  constant cADC_DELAY    : std_logic_vector(15 downto 0) := int2slv(39, 16);  --!Delay from the FE falling edge and the start of the AD conversion
   constant cBUSY_LEN     : std_logic_vector(15 downto 0) := int2slv((cFE_CLOCK_CYCLES*cTOTAL_ADCS*cCLK_FREQ)/(2*cMULT), 16);  --!320-ns duration of busy extension time
   --!iCFG_PLANE bits: 2:0: FE-Gs;  3: FE-test; 4: Ext-TRG; 15:5: x
   constant cCFG_PLANE    : std_logic_vector(15 downto 0) := x"0107";  --!uStrip configurations
@@ -161,8 +164,8 @@ package FOOTpackage is
       );
   end component FE_interface;
 
-  --!@brief Low-level multiple ADCs interface
-  component multiADC_interface is
+  --!@brief Low-level multiple LTC2313_14 ADCs interface
+  component multiLTC2313_interface is
     port (
       --# {{clocks|Clock}}
       iCLK        : in  std_logic;
@@ -177,7 +180,7 @@ package FOOTpackage is
       --# {{data|ADC Data Output}}
       oMULTI_FIFO : out tMultiAdcFifoIn
       );
-  end component multiADC_interface;
+  end component multiLTC2313_interface;
 
   --!@brief Low-level multiple ADCs plane interface
   component multiAdcPlaneInterface is

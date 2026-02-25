@@ -183,7 +183,7 @@ begin
   sAdcRst <= '1' when (sHpState = RESET) else
              '0';
   --!@brief Low-level ADC interface
-  MultiADC_interface_i : multiADC_interface
+  multiLTC2313_interface_i : multiLTC2313_interface
     port map (
       iCLK        => iCLK,
       iRST        => sAdcRst,
