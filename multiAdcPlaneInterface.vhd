@@ -129,7 +129,7 @@ begin
   --!@brief Generate the SlowClock and SlowEnable for the ADC interface
   ADC_div : clock_divider_2
     generic map(
-      pPOLARITY => '1',
+      pPOLARITY => '0',
       pWIDTH    => 16
       )
     port map (

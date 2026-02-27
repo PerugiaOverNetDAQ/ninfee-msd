@@ -109,7 +109,7 @@ begin
       if (sNextAdcState = READOUT) then
         sFpga2Adc.SClk <= sCntIn.slwClk;
       else
-        sFpga2Adc.SClk <= '1';
+        sFpga2Adc.SClk <= '0';
       end if;
 
       if (sNextAdcState = SAMPLE) then
@@ -176,7 +176,7 @@ begin
       oCARRY => sCountIntf.carry
       );
 
-  sSrRst <= '1' when (sAdcState /= READOUT) else
+  sSrRst <= '1' when (sAdcState = RESET or sAdcState = IDLE) else
             '0';
   --!@brief Generate multiple Shift-registers to sample the ADCs
   SR_GENERATE : for i in 0 to cTOTAL_ADCS-1 generate
@@ -259,7 +259,7 @@ begin
       --Readout the incoming 14 bits
       when READOUT =>
         if (sCountIntf.count <
-            int2slv((cADC_DATA_WIDTH-2-1), sCountIntf.count'length)) then
+            int2slv((cADC_DATA_WIDTH-2), sCountIntf.count'length)) then
           sNextAdcState <= READOUT;
         else
           sNextAdcState <= wait4en(sCntIn.slwEn, READOUT, WRITE_WORD);
