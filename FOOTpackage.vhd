@@ -37,6 +37,36 @@ package FOOTpackage is
   constant cTRG_PERIOD   : std_logic_vector(31 downto 0) := x"0000FFFF";  --!Clock cycles between two internal triggers
   constant cTRG2HOLD     : std_logic_vector(15 downto 0) := int2slv(325, 16);  --!Clock-cycles between an external trigger and the FE-HOLD signal
 
+  -- - - - - -  ** Calibration ** - - - - -
+  constant cADC_CHANNELS         : natural := cFE_CHANNELS*2; 
+  constant cHEAP_SIZE        : natural := 4;
+  constant cACC_WIDTH        : natural := 32; -- Accumolators for pedestal and sigma bit width
+  constant cSQRT_WIDTH       : natural := 32; -- Modified for 32 bit version
+
+  -- Costanti moltiplicative
+  constant cRHT              : std_logic_vector(cADC_DATA_WIDTH-1 downto 0) := "0000000101000000"; -- 10  in ADC32
+  constant cHTH              : std_logic_vector(cADC_DATA_WIDTH-1 downto 0) := "0000000001110000"; -- 3.5 in ADC32
+  constant cLTH              : std_logic_vector(cADC_DATA_WIDTH-1 downto 0) := "0000000000110000"; -- 1.5 in ADC32
+
+  -- Calibration arrays
+  type t_FOOT_adc_data is array (0 to cADC_CHANNELS-1) of std_logic_vector(cADC_DATA_WIDTH-1 downto 0);            
+  type t_lef_data     is array (0 to cTOTAL_ADCS-1) of t_FOOT_adc_data;
+  
+  -- Calibration arrays inverted
+  type t_FOOT_lef_data   is array (0 to cTOTAL_ADCS-1) of std_logic_vector(cADC_DATA_WIDTH-1 downto 0); 
+  type t_FOOT_strip_data is array (0 to cADC_CHANNELS-1) of t_FOOT_lef_data;
+  -- Data to SQRT
+  type t_FOOT_sqrt_data is array (0 to cTOTAL_ADCS-1) of std_logic_vector(cSQRT_WIDTH-1 downto 0);
+
+  type t_cal_accumul is array (0 to cADC_CHANNELS-1) of std_logic_vector(cACC_WIDTH-1 downto 0);
+  type t_lef_accumul is array (0 to cTOTAL_ADCS -1) of  t_cal_accumul;
+
+  type t_lef_accumul_inv is array (0 to cTOTAL_ADCS -1) of std_logic_vector(cACC_WIDTH-1 downto 0);
+  type t_ram_accumul_addr is array (0 to cTOTAL_ADCS -1) of std_logic_vector(6 downto 0);
+
+
+  -- - - - - -  ** END Calibration ** - - - - - 
+
   -- Types for the FE interface ------------------------------------------------
   --!IDE1140_DS front-End input signals (from the FPGA)
   type tFpga2FeIntf is record

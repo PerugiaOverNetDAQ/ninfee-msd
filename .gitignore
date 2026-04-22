@@ -1,3 +1,8 @@
 *.bak
 doc/latex
 doc/html
+
+#Sigasi
+.settings
+.library_mapping.xml
+.project
