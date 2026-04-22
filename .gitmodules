@@ -1,0 +1,3 @@
+[submodule "VHDL_basic_functions"]
+	path = VHDL_basic_functions
+	url = git@github.com:PerugiaOverNetDAQ/VHDL_basic_functions.git
