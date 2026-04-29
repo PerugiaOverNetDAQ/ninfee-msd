@@ -1,3 +1,8 @@
+--!@file LadderWrapper.vhd
+--!@brief Top level of calibration module.
+--!@author Luca Russo, luca.russo@cern.ch, luca.russo912@gmail.com
+--!@date 24/04/2026
+--!@version 1.0.0 
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
@@ -233,13 +238,13 @@ begin
     SMA_WRAP : StreamingMedianOfMedianWrap
         generic map(
             pHEAP_SIZE  => pHEAP_SIZE,
-            pCALC_MODE  => C_SMA_CALC_MODE,
+            pCALC_MODE  => cSMA_CALC_MODE,
             pADC_NUM    => pADC_NUM,
             pDATA_WIDTH => pDATA_WIDTH
         )
         port map(
             iCLK      => iCLK,
-            iNRST     => sSMA_rst,          
+            iRST      => sSMA_rst,          
             iINS_en   => sSMA_putd,         
             iINS_data => sSMA_i_data,          
             oMedian   => sSMA_o_data,           

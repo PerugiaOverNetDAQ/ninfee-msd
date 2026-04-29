@@ -1,3 +1,8 @@
+--!@file PedestalSubtraction.vhd
+--!@brief Pedestal Subtraction implementation in VHDL for calibration.
+--!@author Luca Russo, luca.russo@cern.ch, luca.russo912@gmail.com
+--!@date 29/04/2026
+--!@version 1.0.0 
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
@@ -8,7 +13,7 @@ entity PedestalSubtraction is
   generic (             
     pDATA_WIDTH     : natural := cADC_DATA_WIDTH;
     pADC_NUM        : natural := cTOTAL_ADCS;
-    pADC_STRIPS     : natural := cFE_CHANNELS*2   -- 64 x 2 standard. Number of microstrips per ADC
+    pADC_STRIPS     : natural := cADC_CHANNELS   -- 64 x 2 standard. Number of microstrips per ADC
   );
   port (
     iCLK                : in  std_logic;

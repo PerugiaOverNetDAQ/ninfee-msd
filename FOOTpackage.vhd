@@ -24,7 +24,7 @@ package FOOTpackage is
   constant cTOTAL_ADCS           : natural := 10; --!Total ADCs
 
   constant cCLK_FREQ             : natural := 20; --!Clock frequency in ns (used only to compute delay)
-  constant cMULT                  : natural := 320; --!Multiplier of the BUSY stretch in ns
+  constant cMULT                 : natural := 320; --!Multiplier of the BUSY stretch in ns
 
   constant cFE_CLK_DIV   : std_logic_vector(15 downto 0) := int2slv(34, 16); --!FE SlowClock divider: was 160 at the GSI test beam
   constant cADC_CLK_DIV  : std_logic_vector(15 downto 0) := int2slv(2, 16);  --!ADC SlowClock divider
@@ -42,11 +42,14 @@ package FOOTpackage is
   constant cHEAP_SIZE             : natural := 4;
   constant cACC_WIDTH             : natural := 32; -- Accumolators for pedestal and sigma bit width
   constant cSQRT_WIDTH            : natural := 32; -- Modified for 32 bit version
+  constant cSMA_CALC_MODE         : natural := 2;
+
 
   -- Costanti moltiplicative
   constant cRHT              : std_logic_vector(cADC_DATA_WIDTH-1 downto 0) := "0000000101000000"; -- 10  in ADC32
   constant cHTH              : std_logic_vector(cADC_DATA_WIDTH-1 downto 0) := "0000000001110000"; -- 3.5 in ADC32
   constant cLTH              : std_logic_vector(cADC_DATA_WIDTH-1 downto 0) := "0000000000110000"; -- 1.5 in ADC32
+  constant cMINVAL	         : std_logic_vector(15 downto 0) := x"C000";
 
   -- Calibration arrays
   type t_FOOT_adc_data is array (0 to cADC_CHANNELS-1) of std_logic_vector(cADC_DATA_WIDTH-1 downto 0);            
@@ -64,6 +67,12 @@ package FOOTpackage is
   type t_lef_accumul_inv is array (0 to cTOTAL_ADCS -1) of std_logic_vector(cACC_WIDTH-1 downto 0);
   type t_ram_accumul_addr is array (0 to cTOTAL_ADCS -1) of std_logic_vector(6 downto 0);
 
+  function CalcMedian(maxRoot  : signed(cADC_DATA_WIDTH-1 downto 0);
+                      minRoot  : signed(cADC_DATA_WIDTH-1 downto 0);
+                      maxCount : integer;
+                      minCount : integer;
+                      mode     : natural) 
+                      return std_logic_vector;
 
   -- - - - - -  ** END Calibration ** - - - - - 
 
@@ -286,28 +295,143 @@ package FOOTpackage is
   end component Data_Builder;
 
   -- CALIBRATION
-  --!@brief Pedestal Subtraction in calibration.
   component PedestalSubtraction is
-  generic (             
-    pDATA_WIDTH     : natural := cADC_DATA_WIDTH;
-    pADC_NUM        : natural := cTOTAL_ADCS;
-    pADC_STRIPS     : natural := cFE_CHANNELS*2   -- 64 x 2 standard. Number of microstrips per ADC
-  );
-  port (
-    iCLK                : in  std_logic;
-    iRST                : in  std_logic;
-    iEN                 : in  std_logic;
-    -- in sample stream
-    iDATA               : in  t_FOOT_lef_data;
-    iPUTD               : in  std_logic;
-    -- RAM interface
-    oREAD_ADDR          : out std_logic_vector(6 downto 0);
-    iPED                : in  t_FOOT_lef_data;
-    -- out sample stream
-    oQ                  : out t_FOOT_lef_data;
-    oPUTD               : out std_logic;
-    oBUSY               : out std_logic -- Gives to Ladder Wrapper the status of calib
-  );
-end component PedestalSubtraction;
+    generic (             
+      pDATA_WIDTH     : natural := cADC_DATA_WIDTH;
+      pADC_NUM        : natural := cTOTAL_ADCS;
+      pADC_STRIPS     : natural := cADC_CHANNELS   -- 64 x 2 standard. Number of microstrips per ADC
+    );
+    port (
+      iCLK                : in  std_logic;
+      iRST                : in  std_logic;
+      iEN                 : in  std_logic;
+      -- in sample stream
+      iDATA               : in  t_FOOT_lef_data;
+      iPUTD               : in  std_logic;
+      -- RAM interface
+      oREAD_ADDR          : out std_logic_vector(6 downto 0);
+      iPED                : in  t_FOOT_lef_data;
+      -- out sample stream
+      oQ                  : out t_FOOT_lef_data;
+      oPUTD               : out std_logic;
+      oBUSY               : out std_logic -- Gives to Ladder Wrapper the status of calib
+    );
+  end component PedestalSubtraction;
 
-end FOOTpackage;
+  component minheap is
+      generic (
+          pHEAP_SIZE  : integer := 8;  -- Numero elementi massimi heap
+          pDATA_WIDTH : integer := 8   -- Larghezza dei dati (8 bit)
+      );
+      port (
+          iCLK      : in  std_logic;
+          iRST      : in  std_logic;
+          iINS_en   : in  std_logic;
+          iINS_data : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
+          iEXT_en   : in  std_logic;
+          oBusy     : out std_logic;
+          oCount    : out integer range 0 to pHEAP_SIZE;
+          oRoot     : out std_logic_vector(pDATA_WIDTH-1 downto 0) 
+      );
+  end component minheap;
+
+  component maxheap is
+      generic (
+          pHEAP_SIZE  : integer := 8;
+          pDATA_WIDTH : integer := 8
+      );
+      port (
+          iCLK      : in  std_logic;
+          iRST      : in  std_logic;
+          iINS_en   : in  std_logic;
+          iINS_data : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
+          iEXT_en   : in  std_logic;
+          oBusy     : out std_logic;
+          oCount    : out integer range 0 to pHEAP_SIZE;
+          oRoot     : out std_logic_vector(pDATA_WIDTH-1 downto 0)
+      );
+  end component maxheap;
+
+  component StreamingMedian is
+      generic (
+          pHEAP_SIZE  : integer := 8; -- VA / 2. 128 strip = 64 heap size
+          pCALC_MODE  : natural := 0; 
+          pDATA_WIDTH : integer := 16
+      );
+      port (
+          iCLK      : in  std_logic;
+          iRST      : in  std_logic;
+          iINS_en   : in  std_logic;
+          iINS_data : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
+          oMedian   : out std_logic_vector(pDATA_WIDTH-1 downto 0);
+          oValid    : out std_logic;
+          oBusy_SMA : out std_logic
+      );
+  end component StreamingMedian;
+
+  component StreamingMedianOfMedian is
+      generic (
+          pHEAP_SIZE  : integer := cHEAP_SIZE;
+          pCALC_MODE  : natural := cSMA_CALC_MODE; -- In caso di numero pari di elementi. 0: Media tra le root, 1: MinRoot, >1:MaxRoot
+          pDATA_WIDTH : integer := cADC_DATA_WIDTH
+      );
+      port (
+          iCLK      : in  std_logic;
+          iRST      : in  std_logic;
+          iINS_en   : in  std_logic;
+          iINS_data : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
+          oMedian   : out std_logic_vector(pDATA_WIDTH-1 downto 0);
+          iFlush    : in  std_logic;
+          oValid    : out std_logic;
+          oBusy_SMA : out std_logic
+      );
+  end component StreamingMedianOfMedian;
+
+  component StreamingMedianOfMedianWrap is
+      generic (
+          pHEAP_SIZE  : integer := cHEAP_SIZE;
+          pCALC_MODE  : natural := cSMA_CALC_MODE;
+          pADC_NUM    : natural := cTOTAL_ADCS;
+          pDATA_WIDTH : integer := cADC_DATA_WIDTH
+      );
+      port (
+          iCLK      : in  std_logic;
+          iRST      : in  std_logic;
+          iINS_en   : in  std_logic_vector(pADC_NUM-1 downto 0);
+          iINS_data : in  t_FOOT_lef_data;
+          oMedian   : out t_FOOT_lef_data;
+          iFlush    : in  std_logic_vector(pADC_NUM-1 downto 0);
+          oValid    : out std_logic_vector(pADC_NUM-1 downto 0);
+          oBusy_SMA : out std_logic_vector(pADC_NUM-1 downto 0)
+      );
+  end component StreamingMedianOfMedianWrap;
+
+end package FOOTpackage;
+
+package body FOOTpackage is
+
+  function CalcMedian(
+      maxRoot  : signed(cADC_DATA_WIDTH-1 downto 0);
+      minRoot  : signed(cADC_DATA_WIDTH-1 downto 0);
+      maxCount : integer;
+      minCount : integer;
+      mode     : natural
+  ) return std_logic_vector is
+      variable temp_sum : signed(cADC_DATA_WIDTH downto 0);
+  begin
+      if maxCount = minCount then
+          if mode = 0 then
+              temp_sum := resize(maxRoot, cADC_DATA_WIDTH+1)
+                      + resize(minRoot, cADC_DATA_WIDTH+1);
+              return std_logic_vector(resize(shift_right(temp_sum, 1), cADC_DATA_WIDTH));
+          elsif mode = 1 then
+              return std_logic_vector(minRoot);
+          else 
+              return std_logic_vector(maxRoot);
+          end if;
+      else
+          return std_logic_vector(maxRoot);
+      end if;
+  end function CalcMedian;
+
+end package body FOOTpackage;
