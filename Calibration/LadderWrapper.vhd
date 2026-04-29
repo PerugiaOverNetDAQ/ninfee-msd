@@ -2,7 +2,6 @@ library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
 
-
 use work.FOOTpackage.all;
 
 entity LadderWrapper is
@@ -85,7 +84,7 @@ architecture Behavioral of LadderWrapper is
     signal sLW_StripCnt  : natural range 0 to (pADC_STRIPS * 8) - 1; -- Haven't set to -1 to avoid overflow
     signal sLW_Adc       : natural range 0 to pADC_NUM - 1;
 
-    -- Calibration Ram Interface (Read-only)
+    --! Calibration Ram Interface (Read-only) ** WILL BE DEPRECATED **
     signal sCalibRam_Addr_B   : std_logic_vector(8 downto 0);
     signal sCalibRam_Addr_A   : std_logic_vector(8 downto 0);
     signal sCalibRam_Data03_B : std_logic_vector((pDATA_WIDTH * 4) - 1 downto 0);
@@ -97,6 +96,9 @@ architecture Behavioral of LadderWrapper is
     signal sCalibRam_RHT_ADDR : std_logic_vector(9 downto 0);
     signal sCalibRAM_RHT_DATA : std_logic_vector(pDATA_WIDTH-1 downto 0);
 
+    -- Pedestal RAM
+    signal sPedestal_Ram_Addr : std_logic_vector(6 downto 0);
+    signal sPedestal_Ram_Data : t_FOOT_lef_data;
 
     -- Pedestal subtraction module interface
     signal sPedSub_Data  : t_FOOT_lef_data;
@@ -220,7 +222,7 @@ begin
     oTRIG_L <= '1' when (sLW_State = IDLE and sPUTD_edge = '1') or sTrig = '1' else
                '0';
     -- Internal Reset is part of the busy, does not release the system
-    oBUSY   <= '1' when (sLW_State /= IDLE) or (sCalRst = '0') else
+    oBUSY   <= '1' when (sLW_State /= IDLE) or (sCalRst = '1') else
                '0';
     -- Valid Event ram for both calibration and events
     oVALID_EVT_RAM  <= sValidEventRam or sER_Full; -- Full will arrive for just 1clk
@@ -246,22 +248,20 @@ begin
             oBusy_SMA => open
         );
     
-
-
     PED_SUB : PedestalSubtraction
         generic map(
             pDATA_WIDTH => pDATA_WIDTH,
+            pADC_NUM    => pADC_NUM, 
             pADC_STRIPS => pADC_STRIPS
         )
         port map(
             iCLK         => iCLK,
-            iNRST         => sRst,
+            iRST         => sRst,
             iEN          => sPedSub_En,
             iDATA        => sPedSub_Data,
             iPUTD        => sPedSub_WeIn,
-            oREAD_ADDR   => sCalibRam_Addr_B,
-            iREAD_DATA03 => sCalibRam_Data03_B,
-            iREAD_DATA47 => sCalibRam_Data47_B,
+            oREAD_ADDR   => sPedestal_Ram_Addr, -- Address of pedestal
+            iPED         => sPedestal_Ram_Data, -- Pedestal from ram
             oQ           => sPedSub_Q,
             oPUTD        => sPedSub_WeOut,
             oBUSY        => sPedSub_Busy
@@ -610,8 +610,8 @@ begin
             sLW_State            <= IDLE;
             sLW_StripCnt         <= 0;
             sCNFifo_RE           <= '0';
-            sCalRst              <= '1';
-            oCLUST_ENABLE             <= '0';
+            sCalRst              <= '0';
+            oCLUST_ENABLE        <= '0';
             sValidEventRam       <= '0';
 
         elsif rising_edge(iCLK) then
@@ -624,8 +624,8 @@ begin
                     oER_DATA    <= sER_CalibMSG; -- where 00 are the fake flags --@suppress
                     
                     sCWCalBusy_FallLatch <= '0';
-                    sCalRst              <= '1'; -- Deassert del reset
-                    oCLUST_ENABLE             <= '0';
+                    sCalRst              <= '0'; -- Deassert del reset
+                    oCLUST_ENABLE        <= '0';
 
                     sPedSub_En <= '0';
                     sCN_En     <= '0';
@@ -673,7 +673,7 @@ begin
                         sLW_State  <= C1;
                     elsif sCWCalBusy_FallLatch = '1' and sCNFifo_Empty = '1' then
                         sLW_State <= IDLE;
-                        sCalRst   <= '0';
+                        sCalRst   <= '1';
                     end if;
 
 
@@ -724,7 +724,7 @@ begin
                             sLW_StripCnt <= 0;
                             -- EVENT RESET, if another trigger has arrived during RAM SAVING IT WILL CONTINUE TO ACQUIRE DATA.
                             if sEvent_Running = '0' then
-                                sCalRst   <= '0';   -- JUST AS A SAFETY
+                                sCalRst   <= '1';        -- JUST A SAFETY RESET
                                 sLW_State <= IDLE;
                                 oCLUST_ENABLE <= '1';    -- TEST TO ENABLE CLUSTERING.
                                 sValidEventRam   <= '1';

@@ -38,10 +38,10 @@ package FOOTpackage is
   constant cTRG2HOLD     : std_logic_vector(15 downto 0) := int2slv(325, 16);  --!Clock-cycles between an external trigger and the FE-HOLD signal
 
   -- - - - - -  ** Calibration ** - - - - -
-  constant cADC_CHANNELS         : natural := cFE_CHANNELS*2; 
-  constant cHEAP_SIZE        : natural := 4;
-  constant cACC_WIDTH        : natural := 32; -- Accumolators for pedestal and sigma bit width
-  constant cSQRT_WIDTH       : natural := 32; -- Modified for 32 bit version
+  constant cADC_CHANNELS          : natural := cFE_CHANNELS*2; 
+  constant cHEAP_SIZE             : natural := 4;
+  constant cACC_WIDTH             : natural := 32; -- Accumolators for pedestal and sigma bit width
+  constant cSQRT_WIDTH            : natural := 32; -- Modified for 32 bit version
 
   -- Costanti moltiplicative
   constant cRHT              : std_logic_vector(cADC_DATA_WIDTH-1 downto 0) := "0000000101000000"; -- 10  in ADC32
@@ -284,5 +284,30 @@ package FOOTpackage is
       oEND_OF_EVENT : out std_logic
       );
   end component Data_Builder;
+
+  -- CALIBRATION
+  --!@brief Pedestal Subtraction in calibration.
+  component PedestalSubtraction is
+  generic (             
+    pDATA_WIDTH     : natural := cADC_DATA_WIDTH;
+    pADC_NUM        : natural := cTOTAL_ADCS;
+    pADC_STRIPS     : natural := cFE_CHANNELS*2   -- 64 x 2 standard. Number of microstrips per ADC
+  );
+  port (
+    iCLK                : in  std_logic;
+    iRST                : in  std_logic;
+    iEN                 : in  std_logic;
+    -- in sample stream
+    iDATA               : in  t_FOOT_lef_data;
+    iPUTD               : in  std_logic;
+    -- RAM interface
+    oREAD_ADDR          : out std_logic_vector(6 downto 0);
+    iPED                : in  t_FOOT_lef_data;
+    -- out sample stream
+    oQ                  : out t_FOOT_lef_data;
+    oPUTD               : out std_logic;
+    oBUSY               : out std_logic -- Gives to Ladder Wrapper the status of calib
+  );
+end component PedestalSubtraction;
 
 end FOOTpackage;
