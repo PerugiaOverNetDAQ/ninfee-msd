@@ -406,6 +406,31 @@ package FOOTpackage is
       );
   end component StreamingMedianOfMedianWrap;
 
+  component FOOT_FIFO is
+    generic (             
+      pADC_NUM        : natural := cTOTAL_ADCS;
+      pADC_STRIPS     : natural := cADC_CHANNELS;
+      pDATA_WIDTH     : natural := cADC_DATA_WIDTH
+    );
+    port (
+      -- global control & clock
+      iCLK                : in  std_logic;
+      iRST                : in  std_logic;
+
+      iDATA               : in t_FOOT_lef_data;
+      iRE                 : in std_logic;
+      iWE                 : in std_logic;
+
+      oQ                  : out t_FOOT_lef_data;
+
+      oEMPTY              : out std_logic;
+      oAEMPTY             : out std_logic;
+      oFULL               : out std_logic;
+      oAFULL              : out std_logic
+    );
+  end component FOOT_FIFO;
+
+
 end package FOOTpackage;
 
 package body FOOTpackage is

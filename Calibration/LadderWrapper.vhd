@@ -101,6 +101,7 @@ architecture Behavioral of LadderWrapper is
     signal sCalibRam_RHT_ADDR : std_logic_vector(9 downto 0);
     signal sCalibRAM_RHT_DATA : std_logic_vector(pDATA_WIDTH-1 downto 0);
 
+    --** WIP: NUOVI SEGNALI DI INTERFACCIA CON LA RAM
     -- Pedestal RAM
     signal sPedestal_Ram_Addr : std_logic_vector(6 downto 0);
     signal sPedestal_Ram_Data : t_FOOT_lef_data;
@@ -273,16 +274,23 @@ begin
         );
 
     -- FIFO to hold data while computing CN
-    CN_SUB_FIFO : AMS_FIFO
+    CN_SUB_FIFO : FOOT_FIFO
+        generic map(
+            pADC_NUM     => pADC_NUM,
+            pADC_STRIPS  => pADC_STRIPS,
+            pDATA_WIDTH  => pDATA_WIDTH
+        )
         port map(
-            iCLK   => iCLK,
-            iNRST   => sRst,
-            iDATA  => sCNSubFifo_Data,
-            iRE    => sCNSubFifo_RE,
-            iWE    => sCNSubFifo_WE,
-            oQ     => sCNSubFifo_Q,
-            oEMPTY => sCNSubFifo_Empty,
-            oFULL  => sCNSubFifo_Full
+            iCLK    => iCLK,
+            iRST    => sRst,
+            iDATA   => sCNSubFifo_Data,
+            iRE     => sCNSubFifo_RE,
+            iWE     => sCNSubFifo_WE,
+            oQ      => sCNSubFifo_Q,
+            oEMPTY  => sCNSubFifo_Empty,
+            oAEMPTY => open,
+            oFULL   => sCNSubFifo_Full,
+            oAFULL  => open
         );
 
     CN_SUB : CNSubtraction
@@ -316,16 +324,23 @@ begin
         );
 
     -- FIFO to hold data after CN subtraction
-    CN_FIFO : AMS_FIFO
+    CN_FIFO : FOOT_FIFO
+        generic map(
+            pADC_NUM     => pADC_NUM,
+            pADC_STRIPS  => pADC_STRIPS,
+            pDATA_WIDTH  => pDATA_WIDTH
+        )
         port map(
             iCLK   => iCLK,
-            iNRST   => sRst,
+            iRST   => sRst,
             iDATA  => sCNFifo_Data,
             iRE    => sCNFifo_RE,
             iWE    => sCNFifo_WE,
             oQ     => sCNFifo_Q,
             oEMPTY => sCNFifo_Empty,
-            oFULL  => sCNFifo_Full
+            oAEMPTY => open,
+            oFULL  => sCNFifo_Full,
+            oAFULL  => open
         );
 
     CALIB_WRAP : CalibrationWrapper
