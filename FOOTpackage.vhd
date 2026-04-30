@@ -430,6 +430,46 @@ package FOOTpackage is
     );
   end component FOOT_FIFO;
 
+  component CNSubtraction is
+    generic (             
+      pADC_STRIPS     : natural := cADC_CHANNELS;   -- number of microstrips per ADC
+      pADC_NUM        : natural := cTOTAL_ADCS
+    );
+    port (
+      -- global control & clock
+      iCLK                : in  std_logic;
+      iRST                : in  std_logic;
+      iEN                 : in  std_logic; -- New event
+
+      -- PREVIUS MODULE INTERFACE
+      iWORD               : in t_FOOT_lef_data; -- Word that goes into SMA
+      iPUTD               : in std_logic; -- The word is valid.
+      
+      -- FIFO INTERFACE ** FROM NOT YET IMPLEMENTED FIFO WRAPPER **
+      oRE                 : out std_logic; -- Extract from FIFO for sub on the next cycle oData is valid.
+      iDATA               : in t_FOOT_lef_data;
+      iEMPTY              : in std_logic;
+
+      -- CALIB RAM INTERFACE
+      oRHT_ADDR           : out std_logic_vector(6 downto 0);
+      iRHT_DATA           : in t_FOOT_lef_data;
+
+      -- NEXT MODULE INTERFACE ** 2ND FIFO **
+      oQ                  : out t_FOOT_lef_data; -- Word that goes to the next step.
+      oPUTD               : out std_logic; -- Word ready mark.
+      iFULL               : in std_logic; -- Full of the following FIFO
+
+      -- SMA INTERFACE --
+      oSMA_NRST           : out std_logic;
+      oSMA_INS_en         : out std_logic_vector(pADC_NUM-1 downto 0);
+      oSMA_INS_data       : out t_FOOT_lef_data;
+      iSMA_Median         : in  t_FOOT_lef_data; 
+      oSMA_Flush          : out std_logic_vector(pADC_NUM-1 downto 0);
+      iSMA_Valid          : in  std_logic_vector(pADC_NUM-1 downto 0);
+
+      oBUSY               : out std_logic -- Gives to Ladder Wrapper the status of calib
+    );
+  end component CNSubtraction;
 
 end package FOOTpackage;
 

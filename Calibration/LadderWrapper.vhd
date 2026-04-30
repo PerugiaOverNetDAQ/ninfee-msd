@@ -98,13 +98,12 @@ architecture Behavioral of LadderWrapper is
     signal sCalibRam_Data47_A : std_logic_vector((pDATA_WIDTH * 4) - 1 downto 0);
     signal sCalibRam_Busy_A   : std_logic; -- '1' when port A is writing
 
-    signal sCalibRam_RHT_ADDR : std_logic_vector(9 downto 0);
-    signal sCalibRAM_RHT_DATA : std_logic_vector(pDATA_WIDTH-1 downto 0);
-
     --** WIP: NUOVI SEGNALI DI INTERFACCIA CON LA RAM
     -- Pedestal RAM
-    signal sPedestal_Ram_Addr : std_logic_vector(6 downto 0);
-    signal sPedestal_Ram_Data : t_FOOT_lef_data;
+    signal sPedestal_Ram_Addr   : std_logic_vector(6 downto 0);
+    signal sPedestal_Ram_Data   : t_FOOT_lef_data;
+    signal sRHT_Ram_Addr        : std_logic_vector(6 downto 0);
+    signal sRHT_Ram_Data        : t_FOOT_lef_data;
 
     -- Pedestal subtraction module interface
     signal sPedSub_Data  : t_FOOT_lef_data;
@@ -232,7 +231,8 @@ begin
                '0';
     -- Valid Event ram for both calibration and events
     oVALID_EVT_RAM  <= sValidEventRam or sER_Full; -- Full will arrive for just 1clk
-    oRHT_DATA  <= sCalibRam_RHT_DATA;
+
+    oRHT_DATA  <= sRHT_Ram_Data(0); --!!! JUST TO SUPPRESS ERROR, WILL NEED ADJUSTMENT
 
     sIsCalibrating <= '1' when (sLW_State = CALIB) or (sLW_State = C1) else '0';
 -- SMA DEC
@@ -295,26 +295,24 @@ begin
 
     CN_SUB : CNSubtraction
         generic map(
-            pDATA_WIDTH => pDATA_WIDTH,
-            pHEAP_SIZE  => pHEAP_SIZE,
             pADC_STRIPS => pADC_STRIPS,
             pADC_NUM    => pADC_NUM
         )
         port map(
             iCLK          => iCLK,
-            iNRST         => sRst,
+            iRST          => sRst,
             iEN           => sCN_En,
             iWORD         => sCN_Data,
             iPUTD         => sCN_WeIn,
             oRE           => sCNSubFifo_RE,    -- From FIFO_0
             iDATA         => sCNSubFifo_Q,
             iEMPTY        => sCNSubFifo_Empty,
-            oCR_ADDR      => sCalibRam_RHT_ADDR,
-            iCR_DATA      => sCalibRam_RHT_DATA, --@suppress
+            oRHT_ADDR     => sRHT_Ram_Addr,
+            iRHT_DATA     => sRHT_Ram_Data,
             oQ            => sCN_Q,
             oPUTD         => sCN_WeOut,
             iFULL         => sCNFifo_Full,     -- From FIFO_1
-            oSMA_NRST      => sSMA_CN_rst,
+            oSMA_NRST     => sSMA_CN_rst,
             oSMA_INS_en   => sSMA_CN_putd, 
             oSMA_INS_data => sSMA_CN_i_data,
             iSMA_Median   => sSMA_CN_o_data,
@@ -347,13 +345,13 @@ begin
         generic map(
             pDATA_WIDTH => pDATA_WIDTH,
             pADC_NUM    => pADC_NUM,
-            pRHT        => C_RHT,
-            pHTH        => C_HTH,
-            pLTH        => C_LTH
+            pRHT        => cRHT,
+            pHTH        => cHTH,
+            pLTH        => cLTH
         )
         port map(
             iCLK               => iCLK,
-            iNRST               => sRst,
+            iNRST              => sRst,
             iWord              => sCWData,
             iPutd              => sCWPutd,
             oCM                => sCWState,
@@ -373,14 +371,14 @@ begin
             oREAD_47_B         => sCalibRam_Data47_B,
             oREAD_03_A         => sCalibRam_Data03_A, -- FIXME: ADD OF SECOND READ ADDRESS TO FETCH HIGH AND LOW THR ON THE SAME CLK
             oREAD_47_A         => sCalibRam_Data47_A,
-            iRHT_RADDR         => sCalibRam_RHT_ADDR,
+            iRHT_RADDR         => sRHT_Ram_Addr,
             oWADDR             => oWADDR,
             oWELTH             => oWELTH,
             oLTH_DATA          => oLTH_DATA,
             oWEHTH             => oWEHTH,
             oHTH_DATA          => oHTH_DATA, 
             oWERHT             => oWERHT,
-            oRHT_DATA          => sCalibRam_RHT_DATA,
+            oRHT_DATA          => sRHT_Ram_Data,
             oWEPED             => oWEPED,
             oREPED             => oREPED,
             oPED_DATA          => oPED_DATA,
