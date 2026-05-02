@@ -230,9 +230,9 @@ begin
   --! @param[in] sAdcState Current state of the FSM
   --! @param[in] sCntIn Input signals of the control interface
   --! @param[in] sCountIntf.count Output of the delay counter
-  --! @param[in] iFAST Switch to the fast-data mode of the ADC
+  --! @param[in] sSampleDuration Minimum conversion time
   --! @return sNextAdcState  Next state of the FSM
-  FSM_ADC_proc : process (sAdcState, sCntIn, sCountIntf.count, iFAST)
+  FSM_ADC_proc : process (sAdcState, sCntIn, sCountIntf.count, sSampleDuration)
   begin
     case (sAdcState) is
       --Reset the FSM
