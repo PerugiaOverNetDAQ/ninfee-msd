@@ -102,6 +102,7 @@ architecture Behavioral of LadderWrapper is
     -- Pedestal RAM
     signal sPedestal_Ram_Addr   : std_logic_vector(6 downto 0);
     signal sPedestal_Ram_Data   : t_FOOT_lef_data;
+    -- RHT "fake" RAM (DSP)
     signal sRHT_Ram_Addr        : std_logic_vector(6 downto 0);
     signal sRHT_Ram_Data        : t_FOOT_lef_data;
 

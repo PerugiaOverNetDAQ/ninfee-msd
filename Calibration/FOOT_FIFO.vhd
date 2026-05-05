@@ -54,7 +54,7 @@ begin
             generic map(
                 pWIDTH       => pDATA_WIDTH,
                 pDEPTH       => pADC_STRIPS,
-                pUSEDW_WIDTH => ceil_log2(pADC_STRIPS), --?? come in multiAdcPlaneInterface
+                pUSEDW_WIDTH => ceil_log2(pADC_STRIPS),
                 pAEMPTY_VAL  => 3,
                 pAFULL_VAL   => pADC_STRIPS-3,
                 pSHOW_AHEAD  => "OFF"
@@ -71,8 +71,8 @@ begin
 
                 iRD_REQ => iRE,
                 iWR_REQ => iWE,
-                iDATA   => iDATA(i),
-                oQ      => oQ(i)
+                iDATA   => iDATA(i), --@suppress
+                oQ      => oQ(i)     --@suppress
             );
     end generate;
 
