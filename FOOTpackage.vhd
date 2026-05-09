@@ -58,6 +58,8 @@ package FOOTpackage is
   -- Calibration arrays inverted
   type t_FOOT_lef_data   is array (0 to cTOTAL_ADCS-1) of std_logic_vector(cADC_DATA_WIDTH-1 downto 0); 
   type t_FOOT_strip_data is array (0 to cADC_CHANNELS-1) of t_FOOT_lef_data;
+  
+  type t_FOOT_mult_data is array (0 to cTOTAL_ADCS-1) of std_logic_vector((2*cADC_DATA_WIDTH)-1 downto 0);
   -- Data to SQRT
   type t_FOOT_sqrt_data is array (0 to cTOTAL_ADCS-1) of std_logic_vector(cSQRT_WIDTH-1 downto 0);
 
@@ -73,6 +75,17 @@ package FOOTpackage is
                       minCount : integer;
                       mode     : natural) 
                       return std_logic_vector;
+
+  type CalibCompIN is record
+    DATA            : t_FOOT_lef_data; -- ADC32
+    WADDR           : std_logic_vector(ceil_log2(cADC_CHANNELS)-1 downto 0);
+    RADDR           : std_logic_vector(ceil_log2(cADC_CHANNELS)-1 downto 0);
+    WE              : std_logic;
+  end record CalibCompIN;
+  type CalibCompOUT is record
+    DATA            : t_FOOT_lef_data; -- ADC32
+  end record CalibCompOUT;
+
 
   -- - - - - -  ** END Calibration ** - - - - - 
 
@@ -429,6 +442,78 @@ package FOOTpackage is
       oAFULL              : out std_logic
     );
   end component FOOT_FIFO;
+
+  component FOOT_RAM is
+    generic (             
+      pADC_NUM        : natural := cTOTAL_ADCS;               --!Num of ADCs
+      pADC_STRIPS     : natural := cADC_CHANNELS;             --!Num of channels (RAM depth)
+      pDATA_WIDTH     : natural := cADC_DATA_WIDTH;           --!Data width (RAM width)
+      pUSEDW_WIDTH    : natural := ceil_log2(cADC_CHANNELS);  --!Data ADDR width
+      pFORCE_MLAB     : natural := 1                          --!Force MLAB if 1
+    );
+    port (
+      iCLK                : in  std_logic;
+      iDATA               : in t_FOOT_lef_data;
+      iWADDR              : in std_logic_vector(pUSEDW_WIDTH-1 downto 0);
+      iRADDR              : in std_logic_vector(pUSEDW_WIDTH-1 downto 0);
+      iWE                 : in std_logic;
+      oDATA               : out t_FOOT_lef_data
+    );
+  end component FOOT_RAM;
+
+  component CALIB_RAM is
+    generic (             
+      pADC_NUM        : natural := cTOTAL_ADCS;               --! Num of ADCs
+      pADC_STRIPS     : natural := cADC_CHANNELS;             --! Num of channels (RAM depth)
+      pDATA_WIDTH     : natural := cADC_DATA_WIDTH;           --! Data width (RAM width)
+      pUSEDW_WIDTH    : natural := ceil_log2(cADC_CHANNELS);  --! Data ADDR width
+      pFORCE_MLAB     : natural := 1;                         --! Force MLAB if 1
+
+      pRHT            : std_logic_vector(cADC_DATA_WIDTH-1 downto 0) := cRHT;
+      pHTH            : std_logic_vector(cADC_DATA_WIDTH-1 downto 0) := cHTH;
+      pLTH            : std_logic_vector(cADC_DATA_WIDTH-1 downto 0) := cLTH
+    );
+    port (
+      iCLK                    : in  std_logic;
+
+      -- PEDESTAL INTERFACE
+      iPED_DATA               : in  t_FOOT_lef_data; -- ADC8
+      iPED_WADDR              : in  std_logic_vector(pUSEDW_WIDTH-1 downto 0);
+      iPED_RADDR              : in  std_logic_vector(pUSEDW_WIDTH-1 downto 0);
+      iPED_WE                 : in  std_logic;
+      oPED_DATA               : out t_FOOT_lef_data; -- ADC8
+
+      -- SIGRAW INTERFACE
+      iSIGRAW_DATA            : in  t_FOOT_lef_data; -- ADC32
+      iSIGRAW_WADDR           : in  std_logic_vector(pUSEDW_WIDTH-1 downto 0);
+      iSIGRAW_RADDR           : in  std_logic_vector(pUSEDW_WIDTH-1 downto 0);
+      iSIGRAW_WE              : in  std_logic;
+      oSIGRAW_DATA            : out t_FOOT_lef_data; -- ADC32
+
+      -- SIGMA INTERFACE
+      iSIG_DATA               : in  t_FOOT_lef_data; -- ADC32
+      iSIG_WADDR              : in  std_logic_vector(pUSEDW_WIDTH-1 downto 0);
+      iSIG_RADDR              : in  std_logic_vector(pUSEDW_WIDTH-1 downto 0);
+      iSIG_WE                 : in  std_logic;
+      oSIG_DATA               : out t_FOOT_lef_data; -- ADC32
+
+      -- FLG INTERFACE
+      iFLG_DATA               : in  t_FOOT_lef_data;
+      iFLG_WADDR              : in  std_logic_vector(pUSEDW_WIDTH-1 downto 0);
+      iFLG_RADDR              : in  std_logic_vector(pUSEDW_WIDTH-1 downto 0);
+      iFLG_WE                 : in  std_logic;
+      oFLG_DATA               : out t_FOOT_lef_data;
+
+      -- LOW THR OUTPUT, based on SIG addr
+      oLTH_DATA               : out t_FOOT_lef_data; -- ADC8
+
+      -- HIGH THR OUTPUT, based on SIG addr
+      oHTH_DATA               : out t_FOOT_lef_data; -- ADC8
+
+      -- R.HIGH THR OUTPUT, based on SIGRAW addr
+      oRHT_DATA               : out t_FOOT_lef_data  -- ADC8
+    );
+  end component CALIB_RAM;
 
   component CNSubtraction is
     generic (             
