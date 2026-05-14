@@ -65,76 +65,131 @@ end entity CalibrationWrapper;
 
 
 architecture Behavioral of CalibrationWrapper is
+  attribute syn_encoding : string;
 
-    -- RAM INTERFACE SIGNALS
-    -- INPUT
-    signal sPedIn       : CalibCompIN;
-    signal sSigRawIn    : CalibCompIN;
-    signal sSigIn       : CalibCompIN;
-    signal sFlgIn       : CalibCompIN;
-    -- OUTPUT
-    signal sPedOut      : CalibCompOUT;
-    signal sSigRawOut   : CalibCompOUT;
-    signal sSigOut      : CalibCompOUT;
-    signal sFlgOut      : CalibCompOUT;
-    signal sRhtOut      : CalibCompOUT;
-    signal sHthOut      : CalibCompOUT;
-    signal sLthOut      : CalibCompOUT;
+  -- MAIN FSM states
+  type state_type is (
+    IDLE,
+    WAIT_PEDESTAL, PEDESTAL,
+    WAIT_SIGRAW,   SIGRAW,
+    WAIT_R_THRESH, R_THRESH,
+    WAIT_SIGMA,    SIGMA,
+    WAIT_THRESH,   THRESH,
+    RSF_FETCH, RSF_COMP, RSF_PRE_FLAG, RSF_FLAG,
+    SF_FETCH,  SF_COMP,  SF_PRE_FLAG,  SF_WAIT,  SF_FLAG
+  );
+  signal sCalibState : state_type;
+  attribute syn_encoding of sCalibState : signal is "onehot";
+
+
+  -- RAM INTERFACE SIGNALS
+  -- INPUT
+  signal sPedIn       : CalibCompIN;
+  signal sSigRawIn    : CalibCompIN;
+  signal sSigIn       : CalibCompIN;
+  signal sFlgIn       : CalibCompIN;
+  -- OUTPUT
+  signal sPedOut      : CalibCompOUT;
+  signal sSigRawOut   : CalibCompOUT;
+  signal sSigOut      : CalibCompOUT;
+  signal sFlgOut      : CalibCompOUT;
+  signal sRhtOut      : CalibCompOUT;
+  signal sHthOut      : CalibCompOUT;
+  signal sLthOut      : CalibCompOUT;
+
+  -- SQRT SIGNALS
+  signal sToSQRT_Start  : std_logic;
+  signal sToSQRT_MSG    : t_FOOT_sqrt_data;
+  signal sFromSQRT_Done : std_logic;
+  signal sFromSQRT_MSG  : t_FOOT_lef_data;
+
+  -- SMA
+  signal sSMA_Valid_latched : std_logic_vector(pADC_NUM-1 downto 0);
+  signal sSMA_Valid_rst     : std_logic;
 
 begin
 
-    -- RAM ASYNC SIGNALS MAPPING
-    sPedIn.RADDR    <= iPED_RADDR;
-    sSigRawIn.RADDR <= iSIGRAW_RADDR;
-    sSigIn.RADDR    <= iSIG_RADDR;
-    sFlgIn.RADDR    <= iFLG_RADDR;
-    oPED_DATA       <= sPedOut.DATA;            
-    oSIGRAW_DATA    <= sSigRawOut.DATA;                 
-    oSIG_DATA       <= sSigOut.DATA;                    
-    oFLG_DATA       <= sFlgOut.DATA;         
-    oLTH_DATA       <= sLthOut.DATA;         
-    oHTH_DATA       <= sHthOut.DATA;         
-    oRHT_DATA       <= sRhtOut.DATA;
+  -- RAM ASYNC SIGNALS MAPPING
+  sPedIn.RADDR    <= iPED_RADDR;
+  sSigRawIn.RADDR <= iSIGRAW_RADDR;
+  sSigIn.RADDR    <= iSIG_RADDR;
+  sFlgIn.RADDR    <= iFLG_RADDR;
+  oPED_DATA       <= sPedOut.DATA;            
+  oSIGRAW_DATA    <= sSigRawOut.DATA;                 
+  oSIG_DATA       <= sSigOut.DATA;                    
+  oFLG_DATA       <= sFlgOut.DATA;         
+  oLTH_DATA       <= sLthOut.DATA;         
+  oHTH_DATA       <= sHthOut.DATA;         
+  oRHT_DATA       <= sRhtOut.DATA;
 
+  -- SQRT ISTANCE
+  SQRT_INST : SQRT_wrap
+    generic map(
+      pADC_NUM => pADC_NUM
+    )
+    port map(
+      iCLK        => iCLK,
+      iRST        => iRST,
+      iSQRT_MSG   => sToSQRT_MSG,
+      iSQRT_Start => sToSQRT_Start,
+      oSQRT_MSG   => sFromSQRT_MSG ,
+      oSQRT_Done  => sFromSQRT_Done
+    );
+  
+  -- RAM INSTANCE
+  CAL_RAM : CALIB_RAM
+      generic map(
+          pADC_NUM     => pADC_NUM,
+          pADC_STRIPS  => pADC_STRIPS,
+          pDATA_WIDTH  => pDATA_WIDTH,
+          pUSEDW_WIDTH => pUSEDW_WIDTH,
+          pFORCE_MLAB  => 1,
+          pRHT         => pRHT,
+          pHTH         => pHTH,
+          pLTH         => pLTH
+      )
+      port map(
+          iCLK          => iCLK,
+          iPED_DATA     => sPedIn.DATA,
+          iPED_WADDR    => sPedIn.WADDR,
+          iPED_RADDR    => sPedIn.RADDR,
+          iPED_WE       => sPedIn.WE,
+          oPED_DATA     => sPedOut.DATA,
+          iSIGRAW_DATA  => sSigRawIn.DATA,
+          iSIGRAW_WADDR => sSigRawIn.WADDR,
+          iSIGRAW_RADDR => sSigRawIn.RADDR,
+          iSIGRAW_WE    => sSigRawIn.WE,
+          oSIGRAW_DATA  => sSigRawOut.DATA,
+          iSIG_DATA     => sSigIn.DATA,
+          iSIG_WADDR    => sSigIn.WADDR,
+          iSIG_RADDR    => sSigIn.RADDR,
+          iSIG_WE       => sSigIn.WE,
+          oSIG_DATA     => sSigOut.DATA,
+          iFLG_DATA     => sFlgIn.DATA,
+          iFLG_WADDR    => sFlgIn.WADDR,
+          iFLG_RADDR    => sFlgIn.RADDR,
+          iFLG_WE       => sFlgIn.WE,
+          oFLG_DATA     => sFlgOut.DATA,
+          oLTH_DATA     => sLthOut.DATA,
+          oHTH_DATA     => sHthOut.DATA,
+          oRHT_DATA     => sRhtOut.DATA
+      );         
 
-
-    -- RAM ISTANCE
-    CAL_RAM : CALIB_RAM
-        generic map(
-            pADC_NUM     => pADC_NUM,
-            pADC_STRIPS  => pADC_STRIPS,
-            pDATA_WIDTH  => pDATA_WIDTH,
-            pUSEDW_WIDTH => pUSEDW_WIDTH,
-            pFORCE_MLAB  => 1,
-            pRHT         => pRHT,
-            pHTH         => pHTH,
-            pLTH         => pLTH
-        )
-        port map(
-            iCLK          => iCLK,
-            iPED_DATA     => sPedIn.DATA,
-            iPED_WADDR    => sPedIn.WADDR,
-            iPED_RADDR    => sPedIn.RADDR,
-            iPED_WE       => sPedIn.WE,
-            oPED_DATA     => sPedOut.DATA,
-            iSIGRAW_DATA  => sSigRawIn.DATA,
-            iSIGRAW_WADDR => sSigRawIn.WADDR,
-            iSIGRAW_RADDR => sSigRawIn.RADDR,
-            iSIGRAW_WE    => sSigRawIn.WE,
-            oSIGRAW_DATA  => sSigRawOut.DATA,
-            iSIG_DATA     => sSigIn.DATA,
-            iSIG_WADDR    => sSigIn.WADDR,
-            iSIG_RADDR    => sSigIn.RADDR,
-            iSIG_WE       => sSigIn.WE,
-            oSIG_DATA     => sSigOut.DATA,
-            iFLG_DATA     => sFlgIn.DATA,
-            iFLG_WADDR    => sFlgIn.WADDR,
-            iFLG_RADDR    => sFlgIn.RADDR,
-            iFLG_WE       => sFlgIn.WE,
-            oFLG_DATA     => sFlgOut.DATA,
-            oLTH_DATA     => sLthOut.DATA,
-            oHTH_DATA     => sHthOut.DATA,
-            oRHT_DATA     => sRhtOut.DATA
-        );         
+  
+  -- PROCESS FOR SMA VALID
+  process(iCLK, iRST)
+      begin
+          if iRST = '1' then
+            sSMA_Valid_latched <= (others => '0');
+          elsif rising_edge(iCLK) then
+            if sSMA_Valid_rst = '1' then
+                sSMA_Valid_latched <= (others => '0');
+            else
+              for i in 0 to pADC_NUM - 1 loop
+                sSMA_Valid_latched(i) <= sSMA_Valid_latched(i) or iSMA_Valid(i);
+              end loop;    
+            end if;
+          end if;
+  end process;
 
 end architecture Behavioral;

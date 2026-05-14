@@ -556,6 +556,32 @@ package FOOTpackage is
     );
   end component CNSubtraction;
 
+  component sqrt32_seq is
+    port (
+      iCLK    : in  std_logic;
+      iRST    : in  std_logic;
+      iSTART  : in  std_logic;                 
+      iDATA   : in  std_logic_vector(31 downto 0);
+      oROOT   : out std_logic_vector(15 downto 0);
+      oDONE   : out std_logic                  
+    );
+  end component sqrt32_seq;
+  
+  component SQRT_wrap is
+      generic (             
+          pADC_NUM        : natural := cTOTAL_ADCS               --!Num of ADCs
+    );
+      port (
+          iCLK        : in  std_logic;
+          iRST        : in  std_logic;
+          iSQRT_MSG   : in  t_FOOT_sqrt_data;
+          iSQRT_Start : in  std_logic;
+          oSQRT_MSG   : out t_FOOT_lef_data;     
+          oSQRT_Done  : out std_logic         
+      );
+  end component SQRT_wrap;
+
+
 end package FOOTpackage;
 
 package body FOOTpackage is
