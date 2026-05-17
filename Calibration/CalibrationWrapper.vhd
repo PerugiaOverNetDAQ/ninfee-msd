@@ -107,6 +107,9 @@ architecture Behavioral of CalibrationWrapper is
   signal sSMA_Valid_latched : std_logic_vector(pADC_NUM-1 downto 0);
   signal sSMA_Valid_rst     : std_logic;
 
+  -- DSP
+  signal sDSPout        : t_FOOT_lef_data;
+
 begin
 
   -- RAM ASYNC SIGNALS MAPPING
@@ -175,7 +178,19 @@ begin
           oRHT_DATA     => sRhtOut.DATA
       );         
 
-  
+  -- DSQSQ wrapper
+  DSPSQWrap_0 : DSPSQ_wrap
+    generic map(
+      pDATA_WIDTH  => pDATA_WIDTH,
+      pADC_NUM     => pADC_NUM
+    )
+    port map(
+      iDATA   => iWord,
+      oSQUARE => sDSPout
+    );
+
+
+
   -- PROCESS FOR SMA VALID
   process(iCLK, iRST)
       begin

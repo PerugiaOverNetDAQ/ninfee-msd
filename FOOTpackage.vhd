@@ -43,6 +43,7 @@ package FOOTpackage is
   constant cACC_WIDTH             : natural := 32; -- Accumolators for pedestal and sigma bit width
   constant cSQRT_WIDTH            : natural := 32; -- Modified for 32 bit version
   constant cSMA_CALC_MODE         : natural := 2;
+  constant cN_EVENT               : natural := 1024; -- Number of events for each calib stare (ped, sigraw, sig)
 
 
   -- Costanti moltiplicative
@@ -581,6 +582,26 @@ package FOOTpackage is
       );
   end component SQRT_wrap;
 
+  component DSPSQ is
+      generic (
+          pDATA_WIDTH : natural := cADC_DATA_WIDTH
+      );
+      port (
+          iDATA   : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
+          oSQUARE : out std_logic_vector(2*pDATA_WIDTH-1 downto 0)
+      );
+  end component DSPSQ;
+
+  component DSPSQ_wrap is
+    generic (
+        pDATA_WIDTH : natural := cADC_DATA_WIDTH;
+        pADC_NUM    : natural := cTOTAL_ADCS
+    );
+    port (
+        iDATA   : in  t_FOOT_lef_data;
+        oSQUARE : out t_FOOT_lef_data
+    );
+  end component DSPSQ_wrap;
 
 end package FOOTpackage;
 
