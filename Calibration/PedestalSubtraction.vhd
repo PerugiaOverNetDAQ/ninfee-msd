@@ -21,8 +21,8 @@ entity PedestalSubtraction is
     iEN                 : in  std_logic;
 
     -- in sample stream
-    iDATA               : in  t_FOOT_lef_data;     -- Comes From ADC-LEF
-    iPUTD               : in  std_logic;           -- Comes From ADC-LEF
+    iDATA               : in  t_FOOT_lef_data;
+    iPUTD               : in  std_logic;     
     
     -- RAM interface
     oREAD_ADDR          : out std_logic_vector(6 downto 0);

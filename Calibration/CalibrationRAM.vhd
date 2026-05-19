@@ -24,6 +24,13 @@ entity CALIB_RAM is
   );
   port (
     iCLK                    : in  std_logic;
+    iRST                    : in  std_logic;
+
+    -- THR CHANGE
+    iLTH                    : in std_logic_vector(pDATA_WIDTH-1 downto 0);
+    iHTH                    : in std_logic_vector(pDATA_WIDTH-1 downto 0);
+    iKC                     : in std_logic;
+    iKV                     : in std_logic;
 
     -- PEDESTAL INTERFACE
     iPED_DATA               : in  t_FOOT_lef_data; -- ADC8
@@ -94,7 +101,24 @@ architecture Behavioral of CALIB_RAM is
     attribute multstyle of sHTH_MULT : signal is "dsp";
     attribute multstyle of sRHT_MULT : signal is "dsp";
 
+        -- THR CHANGE
+    signal sLTH                    : std_logic_vector(pDATA_WIDTH-1 downto 0);
+    signal sHTH                    : std_logic_vector(pDATA_WIDTH-1 downto 0);
 begin
+
+    TRH_CHANGE :   process(iCLK, iRST)
+    begin
+        if iRST = '1' then
+            sLTH  <= pLTH; --@suppress
+            sHTH  <= pHTH; --@suppress
+        elsif rising_edge(iCLK) then
+            if iKV = '1' and iKC = '1' then
+                sLTH  <= iLTH;
+                sHTH  <= iHTH;
+            end if;
+        end if;
+    end process TRH_CHANGE;
+    
 
     -- PEDESTAL RAM
     PED: FOOT_RAM
@@ -182,12 +206,12 @@ begin
     GEN_THR_MULT : for i in 0 to pADC_NUM-1 generate
 
         -- DSP products
-        sLTH_MULT(i) <= std_logic_vector(
-            signed(sSIG_DATA_RAM(i)) * signed(pLTH)
+        sLTH_MULT(i) <= std_logic_vector(--@suppress
+            signed(sSIG_DATA_RAM(i)) * signed(sLTH) 
         );
 
-        sHTH_MULT(i) <= std_logic_vector(
-            signed(sSIG_DATA_RAM(i)) * signed(pHTH)
+        sHTH_MULT(i) <= std_logic_vector( --@suppress
+            signed(sSIG_DATA_RAM(i)) * signed(sHTH) 
         );
 
         sRHT_MULT(i) <= std_logic_vector(

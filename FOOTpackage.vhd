@@ -476,6 +476,13 @@ package FOOTpackage is
     );
     port (
       iCLK                    : in  std_logic;
+      iRST                    : in  std_logic;
+
+      -- THR CHANGE
+      iLTH                    : in std_logic_vector(pDATA_WIDTH-1 downto 0);
+      iHTH                    : in std_logic_vector(pDATA_WIDTH-1 downto 0);
+      iKC                     : in std_logic;
+      iKV                     : in std_logic;
 
       -- PEDESTAL INTERFACE
       iPED_DATA               : in  t_FOOT_lef_data; -- ADC8
@@ -602,6 +609,167 @@ package FOOTpackage is
         oSQUARE : out t_FOOT_lef_data
     );
   end component DSPSQ_wrap;
+
+  component MultiCalibration is
+    generic (
+      pN_EVENT        : natural := cN_EVENT;
+      pDATA_WIDTH     : natural := cADC_DATA_WIDTH;
+      pADC_STRIPS     : natural := cADC_CHANNELS;   -- number of microstrips per ADC
+      pUSEDW_WIDTH    : natural := ceil_log2(cADC_CHANNELS);  --! Data ADDR width
+      pACC_WIDTH      : natural := cACC_WIDTH;
+      pADC_NUM        : natural := cTOTAL_ADCS
+    );
+    port (
+      -- global control & clock
+      iCLK        : in  std_logic;
+      iRST        : in  std_logic;
+
+      -- incoming sample stream
+      iWORD       : in  t_FOOT_lef_data;   
+      iPUTD       : in  std_logic;        
+      iENABLE     : in  std_logic;        
+      iCMODE      : in  std_logic_vector(1 downto 0);
+
+      -- RAM WRITING
+      oDATA       : out t_FOOT_lef_data;
+      oWA         : out std_logic_vector(pUSEDW_WIDTH+1 downto 0); -- ADDR WIDTH +2 bits for identifiing ped, sigraw or sig
+      oWEN        : out std_logic;
+
+      -- SIGNAL TO NOTIFY BUSY / READY
+      oBUSY       : out std_logic;
+      oREADY      : out std_logic;
+
+      -- SQRT EXTERIOR CONNECTION
+      oSQRT_START : out std_logic;
+      oSQRT_MSG   : out t_FOOT_sqrt_data;
+      iSQRT_DONE  : in  std_logic;
+      iSQRT_MSG   : in  t_FOOT_lef_data
+    );
+  end component MultiCalibration;
+
+  component CalibrationWrapper is
+    generic (
+      pDATA_WIDTH     : natural := cADC_DATA_WIDTH;
+      pADC_NUM        : natural := cTOTAL_ADCS;
+      pUSEDW_WIDTH    : natural := ceil_log2(cADC_CHANNELS);
+      pADC_STRIPS     : natural := cADC_CHANNELS;
+      pRHT            : std_logic_vector(pDATA_WIDTH-1 downto 0) := cRHT; --@suppress
+      pHTH            : std_logic_vector(pDATA_WIDTH-1 downto 0) := cHTH; --@suppress
+      pLTH            : std_logic_vector(pDATA_WIDTH-1 downto 0) := cLTH; --@suppress
+      pN_EVENT        : natural := cN_EVENT;
+      pACC_WIDTH      : natural := cACC_WIDTH
+    );
+    port (
+      iCLK                    : in  std_logic;
+      iRST                    : in  std_logic;
+
+      iWORD                   : in  t_FOOT_lef_data;                                  -- Input words - ADC8
+      iPUTD                   : in  std_logic;                                        -- Input word  - valid
+      oMC_MODE                : out std_logic_vector(1 downto 0);                     -- Multicalib Running mode.
+      oMC_READY               : out std_logic;                                        -- MultiCalib ready to receive.
+
+      -- Enable and trigger from front-end
+      iCALIB_ENABLE           : in  std_logic;                                        -- Comes from LadderProcessingWrapper
+      oCALIB_BUSY             : out std_logic;                                        -- Gives to Ladder Wrapper the status of calib
+      iTRIG                   : in  std_logic;                                        -- Comes From front END
+
+      -- THR CHANGE
+      iLTH                    : in std_logic_vector(pDATA_WIDTH-1 downto 0);
+      iHTH                    : in std_logic_vector(pDATA_WIDTH-1 downto 0);
+      iKC                     : in std_logic;
+      iKV                     : in std_logic;
+
+      -- RAM INTERFACE
+      iPED_RADDR              : in  std_logic_vector(pUSEDW_WIDTH-1 downto 0);
+      oPED_DATA               : out t_FOOT_lef_data;                                  -- ADC8
+      iSIGRAW_RADDR           : in  std_logic_vector(pUSEDW_WIDTH-1 downto 0);
+      oSIGRAW_DATA            : out t_FOOT_lef_data;                                  -- ADC8
+      iSIG_RADDR              : in  std_logic_vector(pUSEDW_WIDTH-1 downto 0);
+      oSIG_DATA               : out t_FOOT_lef_data;                                  -- ADC8
+      iFLG_RADDR              : in  std_logic_vector(pUSEDW_WIDTH-1 downto 0);
+      oFLG_DATA               : out t_FOOT_lef_data;
+      oLTH_DATA               : out t_FOOT_lef_data;                                  -- LOW THR OUTPUT, based on SIG addr
+      oHTH_DATA               : out t_FOOT_lef_data;                                  -- HIGH THR OUTPUT, based on SIG addr
+      oRHT_DATA               : out t_FOOT_lef_data;                                  -- R.HIGH THR OUTPUT, based on SIGRAW addr
+
+      -- SMA INTERFACE
+      oSMA_priority           : out std_logic;
+      oSMA_RST                : out std_logic;
+      oSMA_INS_en             : out std_logic_vector(pADC_NUM-1 downto 0);
+      oSMA_INS_data           : out t_FOOT_lef_data;
+      iSMA_Median             : in  t_FOOT_lef_data;
+      oSMA_Flush              : out std_logic_vector(pADC_NUM-1 downto 0);
+      iSMA_Valid              : in  std_logic_vector(pADC_NUM-1 downto 0)
+    );
+  end component CalibrationWrapper;
+
+  component LadderWrapper is
+    generic(
+        pDATA_WIDTH  : natural := cADC_DATA_WIDTH;
+        pADC_STRIPS  : natural := cADC_CHANNELS; -- number of microstrips per ADC
+        pHEAP_SIZE   : natural := cHEAP_SIZE;
+        pADC_NUM     : natural := cTOTAL_ADCS;
+        pLTH         : std_logic_vector(cADC_DATA_WIDTH-1 downto 0) := cLTH;
+        pHTH         : std_logic_vector(cADC_DATA_WIDTH-1 downto 0) := cHTH;
+        pWADDR_WIDTH : natural := ceil_log2(pADC_NUM * pADC_STRIPS) -- linear address width for ADC x STRIP memories
+    );
+    port(
+        -- global control & clock
+        iCLK                    : in  std_logic;
+        iRST                    : in  std_logic;
+        -- in sample stream
+        iWORD                   : in  t_FOOT_lef_data;  -- Data from multiADCPlaneInterface, in parallel from all the ADCs.     ** iMULTI_FIFO.tFifoIn_ADC.data **
+        iPUTD                   : in  std_logic;        -- Write-enable from ADC-LEF                                            ** iMULTI_FIFO.tFifoIn_ADC.wr   **
+        iTRIG                   : in  std_logic;        -- Trigger from ADC-LEF                                                 ** iCNT.start **
+
+        -- Trigger Lost
+        oTRIG_L                 : out std_logic;    -- Trigger LOST or Putd LOST
+
+        -- CLuster ENABLE
+        oCLUST_ENABLE           : out std_logic;
+        oVALID_EVT_RAM          : out std_logic;
+
+        -- Enable and trigger from front-end
+        iCAL_ENABLE             : in  std_logic;    -- '1': calibration; '0': no calibration
+        iEVT_ENABLE             : in  std_logic;    -- '1': event run, if not cal; '0': no run
+
+        iHOST_CONTROL           : in std_logic_vector(7 downto 0);
+        oHOST_CONTROL           : out std_logic_vector(6 downto 0);
+        iK1                     : in std_logic_vector(pDATA_WIDTH-1 downto 0);
+        iK2                     : in std_logic_vector(pDATA_WIDTH-1 downto 0);
+
+        oBUSY                   : out std_logic;
+
+        -- Event ram outputs
+        oER_WE                  : out std_logic;
+        oER_W_ADDR              : out std_logic_vector(pWADDR_WIDTH-1 downto 0);
+        oER_DATA                : out std_logic_vector(pDATA_WIDTH-1 downto 0);
+
+        -- ** CALIB RAM UNLOAD ONCE CALIBRATION IS OVER**
+        oWADDR                  : out std_logic_vector(pWADDR_WIDTH-1 downto 0);
+
+        oWELTH                  : out std_logic;
+        oLTH_DATA               : out std_logic_vector(pDATA_WIDTH-1 downto 0);
+
+        oWEHTH                  : out std_logic;
+        oHTH_DATA               : out std_logic_vector(pDATA_WIDTH-1 downto 0);
+
+        oWERHT                  : out std_logic;
+        oRHT_DATA               : out std_logic_vector(pDATA_WIDTH-1 downto 0);
+
+        oWEPED                  : out std_logic;
+        oREPED                  : out std_logic;
+        oPED_DATA               : out std_logic_vector(pDATA_WIDTH-1 downto 0);
+
+        oWEFLG                  : out std_logic;
+        oREFLG                  : out std_logic;
+        oFLG_DATA               : out std_logic_vector(pDATA_WIDTH-1 downto 0);
+
+        oRESIG                  : out std_logic;
+        oSIG_DATA               : out std_logic_vector(pDATA_WIDTH-1 downto 0)     
+    );
+  end component LadderWrapper;
+
 
 end package FOOTpackage;
 
