@@ -18,7 +18,7 @@ entity LadderWrapper is
         pADC_NUM     : natural := cTOTAL_ADCS;
         pLTH         : std_logic_vector(cADC_DATA_WIDTH-1 downto 0) := cLTH;
         pHTH         : std_logic_vector(cADC_DATA_WIDTH-1 downto 0) := cHTH;
-        pWADDR_WIDTH : natural := ceil_log2(pADC_NUM * pADC_STRIPS) -- linear address width for ADC x STRIP memories
+        pWADDR_WIDTH : natural := ceil_log2(cTOTAL_ADCS * cADC_CHANNELS) -- linear address width for ADC x STRIP memories
     );
     port(
         -- global control & clock
@@ -152,6 +152,11 @@ architecture Behavioral of LadderWrapper is
     signal sCWCalBusy_D         : std_logic := '0';
     signal sCWCalBusy_Falling   : std_logic := '0';
     signal sCWCalBusy_FallLatch : std_logic;
+
+    -- Calibration result mirror toward Event RAM
+    signal sCW_ER_WE             : std_logic;
+    signal sCW_ER_W_ADDR         : std_logic_vector(pWADDR_WIDTH-1 downto 0);
+    signal sCW_ER_DATA           : std_logic_vector(pDATA_WIDTH-1 downto 0);
 
     -- EVENT BUSY
     signal sEvent_StripCnt : natural range 0 to pADC_STRIPS - 1;
@@ -370,7 +375,8 @@ begin
             pADC_STRIPS => pADC_STRIPS,
             pRHT        => cRHT,
             pHTH        => pHTH,
-            pLTH        => pLTH
+            pLTH        => pLTH,
+            pWADDR_WIDTH => pWADDR_WIDTH
         )
         port map(
             iCLK              => iCLK,
@@ -382,6 +388,10 @@ begin
             iCALIB_ENABLE     => sCalInternal,
             oCALIB_BUSY       => sCWCalBusy,
             iTRIG             => iTRIG,
+
+            oER_WE            => sCW_ER_WE,
+            oER_W_ADDR        => sCW_ER_W_ADDR,
+            oER_DATA          => sCW_ER_DATA,
 
             iLTH              => sK1,
             iHTH              => sK2,
@@ -857,9 +867,11 @@ begin
                     end if;
 
                 when CALIB =>
-                    -- Calibration-RAM-to-event-RAM debug forwarding was removed
-                    -- with the new direct-RAM CalibrationWrapper interface.
-                    oER_WE <= '0';
+                    -- During calibration, CalibrationWrapper mirrors the completed
+                    -- PED/SIGRAW/SIG stage into Event RAM with event-like addressing.
+                    oER_WE     <= sCW_ER_WE;
+                    oER_W_ADDR <= sCW_ER_W_ADDR;
+                    oER_DATA   <= sCW_ER_DATA;
 
                     sCNFifo_RE <= '0';
                     sCWPutd    <= '0';
@@ -892,7 +904,11 @@ begin
 
 
                 when C1 =>
-                    oER_WE <= '0';
+                    -- Keep forwarding the CalibrationWrapper Event-RAM stream
+                    -- also in the one-cycle FIFO handoff state.
+                    oER_WE     <= sCW_ER_WE;
+                    oER_W_ADDR <= sCW_ER_W_ADDR;
+                    oER_DATA   <= sCW_ER_DATA;
 
                     sCNFifo_RE <= '0';
                     sCWPutd    <= '1';

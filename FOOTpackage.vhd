@@ -1,6 +1,7 @@
 --!@file FOOTpackage.vhd
 --!@brief Constants, components declarations and functions
 --!@author Mattia Barbanera, mattia.barbanera@infn.it
+--!@author Luca Russo, luca.russo@cern.ch, luca.russo912@gmail.com
 --!@author Hikmat Nasimi, hikmat.nasimi@pi.infn.it
 --!@date 28/01/2020
 --!@version 0.1 - 28/01/2020 -
@@ -68,7 +69,7 @@ package FOOTpackage is
   type t_lef_accumul is array (0 to cTOTAL_ADCS -1) of  t_cal_accumul;
 
   type t_lef_accumul_inv is array (0 to cTOTAL_ADCS -1) of std_logic_vector(cACC_WIDTH-1 downto 0);
-  type t_ram_accumul_addr is array (0 to cTOTAL_ADCS -1) of std_logic_vector(6 downto 0);
+  type t_ram_accumul_addr is array (0 to cTOTAL_ADCS -1) of std_logic_vector((ceil_log2(cADC_CHANNELS))-1 downto 0);
 
   function CalcMedian(maxRoot  : signed(cADC_DATA_WIDTH-1 downto 0);
                       minRoot  : signed(cADC_DATA_WIDTH-1 downto 0);
@@ -653,11 +654,12 @@ package FOOTpackage is
       pADC_NUM        : natural := cTOTAL_ADCS;
       pUSEDW_WIDTH    : natural := ceil_log2(cADC_CHANNELS);
       pADC_STRIPS     : natural := cADC_CHANNELS;
-      pRHT            : std_logic_vector(pDATA_WIDTH-1 downto 0) := cRHT; --@suppress
-      pHTH            : std_logic_vector(pDATA_WIDTH-1 downto 0) := cHTH; --@suppress
-      pLTH            : std_logic_vector(pDATA_WIDTH-1 downto 0) := cLTH; --@suppress
+      pRHT            : std_logic_vector(cADC_DATA_WIDTH-1 downto 0) := cRHT; --@suppress
+      pHTH            : std_logic_vector(cADC_DATA_WIDTH-1 downto 0) := cHTH; --@suppress
+      pLTH            : std_logic_vector(cADC_DATA_WIDTH-1 downto 0) := cLTH; --@suppress
       pN_EVENT        : natural := cN_EVENT;
-      pACC_WIDTH      : natural := cACC_WIDTH
+      pACC_WIDTH      : natural := cACC_WIDTH;
+      pWADDR_WIDTH    : natural := ceil_log2(cTOTAL_ADCS * cADC_CHANNELS)
     );
     port (
       iCLK                    : in  std_logic;
@@ -672,6 +674,13 @@ package FOOTpackage is
       iCALIB_ENABLE           : in  std_logic;                                        -- Comes from LadderProcessingWrapper
       oCALIB_BUSY             : out std_logic;                                        -- Gives to Ladder Wrapper the status of calib
       iTRIG                   : in  std_logic;                                        -- Comes From front END
+
+      -- Calibration result mirror toward Event RAM.
+      -- The three MultiCalib results (PED, SIGRAW, SIG) are serialized with
+      -- the same linear layout used by the event path: ADC * STRIPS + strip.
+      oER_WE                  : out std_logic;
+      oER_W_ADDR              : out std_logic_vector(pWADDR_WIDTH-1 downto 0);
+      oER_DATA                : out std_logic_vector(pDATA_WIDTH-1 downto 0);
 
       -- THR CHANGE
       iLTH                    : in std_logic_vector(pDATA_WIDTH-1 downto 0);
@@ -711,7 +720,7 @@ package FOOTpackage is
         pADC_NUM     : natural := cTOTAL_ADCS;
         pLTH         : std_logic_vector(cADC_DATA_WIDTH-1 downto 0) := cLTH;
         pHTH         : std_logic_vector(cADC_DATA_WIDTH-1 downto 0) := cHTH;
-        pWADDR_WIDTH : natural := ceil_log2(pADC_NUM * pADC_STRIPS) -- linear address width for ADC x STRIP memories
+        pWADDR_WIDTH : natural := ceil_log2(cTOTAL_ADCS * cADC_CHANNELS) -- linear address width for ADC x STRIP memories
     );
     port(
         -- global control & clock

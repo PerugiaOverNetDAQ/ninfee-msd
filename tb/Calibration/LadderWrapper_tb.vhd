@@ -105,12 +105,12 @@ architecture tb of LadderWrapper_tb is
     type t_event_buf is array (0 to C_SAMPLES_EVENT-1) of integer;
 
     -- FILES (WRITE MODE)
-    file f_event_ram : text open write_mode is "L0_V1_event_ram_log.txt";
-    file f_lth       : text open write_mode is "L0_V1_lth_log.txt"; --ADC8
-    file f_hth       : text open write_mode is "L0_V1_hth_log.txt"; --ADC8
-    file f_rht       : text open write_mode is "L0_V1_rht_log.txt"; --ADC8
-    file f_ped       : text open write_mode is "L0_V1_ped_log.txt"; --ADC8
-    file f_flg       : text open write_mode is "L0_V1_flg_log.txt"; --NOADC
+    file f_event_ram : text open write_mode is "FOOT_V1_event_ram_log.txt";
+    file f_lth       : text open write_mode is "FOOT_V1_lth_log.txt"; --ADC8
+    file f_hth       : text open write_mode is "FOOT_V1_hth_log.txt"; --ADC8
+    file f_rht       : text open write_mode is "FOOT_V1_rht_log.txt"; --ADC8
+    file f_ped       : text open write_mode is "FOOT_V1_ped_log.txt"; --ADC8
+    file f_flg       : text open write_mode is "FOOT_V1_flg_log.txt"; --NOADC
 
     -- INPUT: convert a non-negative ADC sample to the current LEF word width.
     -- RAW_ADC.txt stores integer ADC values; zero-extensioning it.

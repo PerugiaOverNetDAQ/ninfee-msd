@@ -97,9 +97,10 @@ architecture Behavioral of CALIB_RAM is
 
     -- Force DSP implementation in Quartus
     attribute multstyle : string;
-    attribute multstyle of sLTH_MULT : signal is "dsp";
-    attribute multstyle of sHTH_MULT : signal is "dsp";
-    attribute multstyle of sRHT_MULT : signal is "dsp";
+    attribute multstyle of Behavioral : architecture is "dsp";
+    -- attribute multstyle of sLTH_MULT : signal is "dsp";
+    -- attribute multstyle of sHTH_MULT : signal is "dsp";
+    -- attribute multstyle of sRHT_MULT : signal is "dsp";
 
         -- THR CHANGE
     signal sLTH                    : std_logic_vector(pDATA_WIDTH-1 downto 0);
@@ -207,15 +208,15 @@ begin
 
         -- DSP products
         sLTH_MULT(i) <= std_logic_vector(--@suppress
-            signed(sSIG_DATA_RAM(i)) * signed(sLTH) 
+            unsigned(sSIG_DATA_RAM(i)) * unsigned(sLTH) 
         );
 
         sHTH_MULT(i) <= std_logic_vector( --@suppress
-            signed(sSIG_DATA_RAM(i)) * signed(sHTH) 
+            unsigned(sSIG_DATA_RAM(i)) * unsigned(sHTH) 
         );
 
         sRHT_MULT(i) <= std_logic_vector(
-            signed(sSIGRAW_DATA_RAM(i)) * signed(pRHT)
+            unsigned(sSIGRAW_DATA_RAM(i)) * unsigned(pRHT)
         );
 
         -- Rescale: ADC32 * ADC32 = ADC1024 -> ADC8
@@ -225,7 +226,7 @@ begin
         oLTH_DATA(i) <= std_logic_vector( -- @suppress
             resize(
                 shift_right(
-                    signed(sLTH_MULT(i)),
+                    unsigned(sLTH_MULT(i)),
                     cSHIFT_BITS
                 ),
                 pDATA_WIDTH
@@ -235,7 +236,7 @@ begin
         oHTH_DATA(i) <= std_logic_vector( -- @suppress
             resize(
                 shift_right(
-                    signed(sHTH_MULT(i)),
+                    unsigned(sHTH_MULT(i)),
                     cSHIFT_BITS
                 ),
                 pDATA_WIDTH
@@ -245,7 +246,7 @@ begin
         oRHT_DATA(i) <= std_logic_vector( -- @suppress
             resize(
                 shift_right(
-                    signed(sRHT_MULT(i)),
+                    unsigned(sRHT_MULT(i)),
                     cSHIFT_BITS
                 ),
                 pDATA_WIDTH

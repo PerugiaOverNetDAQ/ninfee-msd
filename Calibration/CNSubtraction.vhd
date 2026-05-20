@@ -162,8 +162,6 @@ begin
                     sSMA_putd  <= (others => '0');
                     sRHT_data <= iRHT_DATA; --@suppress
                     SR_state  <= COMP;
-                    SR_state  <= FETCH;
-
                     
                 when COMP  =>
                     sSMA_putd <= (others => '0');

@@ -16,11 +16,12 @@ entity CalibrationWrapper is
     pADC_NUM        : natural := cTOTAL_ADCS;
     pUSEDW_WIDTH    : natural := ceil_log2(cADC_CHANNELS);
     pADC_STRIPS     : natural := cADC_CHANNELS;
-    pRHT            : std_logic_vector(pDATA_WIDTH-1 downto 0) := cRHT; --@suppress
-    pHTH            : std_logic_vector(pDATA_WIDTH-1 downto 0) := cHTH; --@suppress
-    pLTH            : std_logic_vector(pDATA_WIDTH-1 downto 0) := cLTH; --@suppress
+    pRHT            : std_logic_vector(cADC_DATA_WIDTH-1 downto 0) := cRHT; --@suppress
+    pHTH            : std_logic_vector(cADC_DATA_WIDTH-1 downto 0) := cHTH; --@suppress
+    pLTH            : std_logic_vector(cADC_DATA_WIDTH-1 downto 0) := cLTH; --@suppress
     pN_EVENT        : natural := cN_EVENT;
-    pACC_WIDTH      : natural := cACC_WIDTH
+    pACC_WIDTH      : natural := cACC_WIDTH;
+    pWADDR_WIDTH    : natural := ceil_log2(cTOTAL_ADCS * cADC_CHANNELS)
   );
   port (
     iCLK                    : in  std_logic;
@@ -35,6 +36,12 @@ entity CalibrationWrapper is
     iCALIB_ENABLE           : in  std_logic;                                        -- Comes from LadderProcessingWrapper
     oCALIB_BUSY             : out std_logic;                                        -- Gives to Ladder Wrapper the status of calib
     iTRIG                   : in  std_logic;                                        -- Comes From front END
+
+    -- Calibration result mirror toward Event RAM.
+    -- The three MultiCalib results (PED, SIGRAW, SIG) and the final FLG map
+    oER_WE                  : out std_logic;
+    oER_W_ADDR              : out std_logic_vector(pWADDR_WIDTH-1 downto 0);
+    oER_DATA                : out std_logic_vector(pDATA_WIDTH-1 downto 0);
 
     -- THR CHANGE
     iLTH                    : in std_logic_vector(pDATA_WIDTH-1 downto 0);
@@ -76,10 +83,14 @@ architecture Behavioral of CalibrationWrapper is
   type state_type is (
     IDLE,
     WAIT_PEDESTAL, PEDESTAL,
+    ER_PED_INIT, ER_PED_WAIT, ER_PED_SEND,
     WAIT_SIGRAW,   SIGRAW,
+    ER_SIGRAW_INIT, ER_SIGRAW_WAIT, ER_SIGRAW_SEND,
     WAIT_SIGMA,    SIGMA,
+    ER_SIG_INIT, ER_SIG_WAIT, ER_SIG_SEND,
     RSF_FETCH, RSF_COMP, RSF_PRE_FLAG, RSF_FLAG,
-    SF_FETCH,  SF_COMP,  SF_PRE_FLAG,  SF_WAIT,  SF_FLAG
+    SF_FETCH,  SF_COMP,  SF_PRE_FLAG,  SF_WAIT,  SF_FLAG,
+    ER_FLG_INIT, ER_FLG_WAIT, ER_FLG_SEND
   );
 
   signal sCalibState : state_type;
@@ -134,6 +145,13 @@ architecture Behavioral of CalibrationWrapper is
   signal sMCReady       : std_logic;
 
   ----------------------------------------------------------------------------
+  -- Calibration-result mirror toward Event RAM
+  ----------------------------------------------------------------------------
+  signal sER_Adc        : natural range 0 to pADC_NUM - 1;
+  signal sER_Strip      : natural range 0 to pADC_STRIPS - 1;
+  signal sER_ReadAddr   : std_logic_vector(pUSEDW_WIDTH-1 downto 0);
+
+  ----------------------------------------------------------------------------
   -- Busy edge (MultiCalib)
   ----------------------------------------------------------------------------
   signal sMCBusy_d       : std_logic;
@@ -181,9 +199,21 @@ begin
   -- ports of SIGRAW, SIG and FLG. Outside this phase, the external read
   -- addresses are forwarded unchanged.
   ----------------------------------------------------------------------------
-  sPedIn.RADDR <= iPED_RADDR;
+  sPedIn.RADDR <= sER_ReadAddr
+    when (
+      sCalibState = ER_PED_INIT or
+      sCalibState = ER_PED_WAIT or
+      sCalibState = ER_PED_SEND
+    )
+    else iPED_RADDR;
 
-  sSigRawIn.RADDR <= sFlag_ReadAddr
+  sSigRawIn.RADDR <= sER_ReadAddr
+    when (
+      sCalibState = ER_SIGRAW_INIT or
+      sCalibState = ER_SIGRAW_WAIT or
+      sCalibState = ER_SIGRAW_SEND
+    )
+    else sFlag_ReadAddr
     when (
       sCalibState = RSF_FETCH or
       sCalibState = RSF_COMP or
@@ -192,7 +222,13 @@ begin
     )
     else iSIGRAW_RADDR;
 
-  sSigIn.RADDR <= sFlag_ReadAddr
+  sSigIn.RADDR <= sER_ReadAddr
+    when (
+      sCalibState = ER_SIG_INIT or
+      sCalibState = ER_SIG_WAIT or
+      sCalibState = ER_SIG_SEND
+    )
+    else sFlag_ReadAddr
     when (
       sCalibState = SF_FETCH or
       sCalibState = SF_COMP or
@@ -202,7 +238,13 @@ begin
     )
     else iSIG_RADDR;
 
-  sFlgIn.RADDR <= sFlag_WriteAddr
+  sFlgIn.RADDR <= sER_ReadAddr
+    when (
+      sCalibState = ER_FLG_INIT or
+      sCalibState = ER_FLG_WAIT or
+      sCalibState = ER_FLG_SEND
+    )
+    else sFlag_WriteAddr
     when (
       sCalibState = SF_PRE_FLAG or
       sCalibState = SF_WAIT or
@@ -298,8 +340,8 @@ begin
       pADC_NUM     => pADC_NUM
     )
     port map(
-      iDATA   => iWORD,
-      oSQUARE => sDSPout
+      iDATA   => iWORD,   --ADC8
+      oSQUARE => sDSPout  --ADC64
     );
 
   ----------------------------------------------------------------------------
@@ -455,9 +497,17 @@ begin
       sFlgWriteData    <= (others => (others => '0'));
       sFlgWriteWE      <= '0';
 
+      oER_WE            <= '0';
+      oER_W_ADDR        <= (others => '0');
+      oER_DATA          <= (others => '0');
+      sER_Adc           <= 0;
+      sER_Strip         <= 0;
+      sER_ReadAddr      <= (others => '0');
+
     elsif rising_edge(iCLK) then
       sMCEnable       <= '0';
       sFlgWriteWE     <= '0';
+      oER_WE          <= '0';
       oSMA_INS_en     <= (others => '0');
       oSMA_RST        <= '0';
       oSMA_Flush      <= (others => '0');
@@ -497,8 +547,40 @@ begin
 
         when PEDESTAL =>
           if sMCBusy_falling = '1' then
-            sMCMode     <= "01";   -- SIGRAW step
-            sCalibState <= WAIT_SIGRAW;
+            -- The PED RAM is complete: expose it through Event RAM
+            -- before arming the next calibration stage.
+            sCalibState <= ER_PED_INIT;
+          end if;
+
+        when ER_PED_INIT =>
+          sER_Adc      <= 0;
+          sER_Strip    <= 0;
+          sER_ReadAddr <= (others => '0');
+          sCalibState  <= ER_PED_WAIT;
+
+        when ER_PED_WAIT =>
+          -- CALIB_RAM read latency alignment.
+          sCalibState <= ER_PED_SEND;
+
+        when ER_PED_SEND =>
+          oER_W_ADDR <= std_logic_vector(
+            to_unsigned((sER_Adc * pADC_STRIPS) + sER_Strip, oER_W_ADDR'length)
+          );
+          oER_DATA <= sPedOut.DATA(sER_Adc); --@suppress
+          oER_WE   <= '1';
+
+          if sER_Adc /= pADC_NUM - 1 then
+            sER_Adc <= sER_Adc + 1;
+          else
+            sER_Adc <= 0;
+            if sER_Strip /= pADC_STRIPS - 1 then
+              sER_Strip    <= sER_Strip + 1;
+              sER_ReadAddr <= std_logic_vector(to_unsigned(sER_Strip + 1, pUSEDW_WIDTH));
+              sCalibState  <= ER_PED_WAIT;
+            else
+              sMCMode      <= "01";   -- SIGRAW step
+              sCalibState  <= WAIT_SIGRAW;
+            end if;
           end if;
 
         when WAIT_SIGRAW =>
@@ -509,8 +591,40 @@ begin
 
         when SIGRAW =>
           if sMCBusy_falling = '1' then
-            sMCMode     <= "10";   -- SIGMA step
-            sCalibState <= WAIT_SIGMA;
+            -- The SIGRAW RAM is complete: expose it through Event RAM
+            -- before arming the SIGMA acquisition.
+            sCalibState <= ER_SIGRAW_INIT;
+          end if;
+
+        when ER_SIGRAW_INIT =>
+          sER_Adc      <= 0;
+          sER_Strip    <= 0;
+          sER_ReadAddr <= (others => '0');
+          sCalibState  <= ER_SIGRAW_WAIT;
+
+        when ER_SIGRAW_WAIT =>
+          -- CALIB_RAM read latency alignment.
+          sCalibState <= ER_SIGRAW_SEND;
+
+        when ER_SIGRAW_SEND =>
+          oER_W_ADDR <= std_logic_vector(
+            to_unsigned((sER_Adc * pADC_STRIPS) + sER_Strip, oER_W_ADDR'length)
+          );
+          oER_DATA <= sSigRawOut.DATA(sER_Adc); --@suppress
+          oER_WE   <= '1';
+
+          if sER_Adc /= pADC_NUM - 1 then
+            sER_Adc <= sER_Adc + 1;
+          else
+            sER_Adc <= 0;
+            if sER_Strip /= pADC_STRIPS - 1 then
+              sER_Strip    <= sER_Strip + 1;
+              sER_ReadAddr <= std_logic_vector(to_unsigned(sER_Strip + 1, pUSEDW_WIDTH));
+              sCalibState  <= ER_SIGRAW_WAIT;
+            else
+              sMCMode      <= "10";   -- SIGMA step
+              sCalibState  <= WAIT_SIGMA;
+            end if;
           end if;
 
         when WAIT_SIGMA =>
@@ -521,20 +635,52 @@ begin
 
         when SIGMA =>
           if sMCBusy_falling = '1' then
-            -- Threshold data are exposed directly by CALIB_RAM with DSP, no computation needed
-            -- Start the flag computation.
-            oSMA_priority   <= '1';
+            -- The SIG RAM is complete: expose it through Event RAM
+            -- before starting the post-calibration flag computation.
+            sCalibState <= ER_SIG_INIT;
+          end if;
 
-            sFlag_Compare   <= (others => (others => '0'));
-            sFlag_VA_done   <= '0';
-            sFlag_cnt       <= 0;
-            sSMA_InsertOnce <= '0';
-            sSMA_Valid_rst  <= '1';
+        when ER_SIG_INIT =>
+          sER_Adc      <= 0;
+          sER_Strip    <= 0;
+          sER_ReadAddr <= (others => '0');
+          sCalibState  <= ER_SIG_WAIT;
 
-            sFlag_ReadAddr  <= fFlagAddr('0', 0);
-            sFlag_WriteAddr <= fFlagAddr('0', 0);
+        when ER_SIG_WAIT =>
+          -- CALIB_RAM read latency alignment.
+          sCalibState <= ER_SIG_SEND;
 
-            sCalibState <= RSF_FETCH;
+        when ER_SIG_SEND =>
+          oER_W_ADDR <= std_logic_vector(
+            to_unsigned((sER_Adc * pADC_STRIPS) + sER_Strip, oER_W_ADDR'length)
+          );
+          oER_DATA <= sSigOut.DATA(sER_Adc); --@suppress
+          oER_WE   <= '1';
+
+          if sER_Adc /= pADC_NUM - 1 then
+            sER_Adc <= sER_Adc + 1;
+          else
+            sER_Adc <= 0;
+            if sER_Strip /= pADC_STRIPS - 1 then
+              sER_Strip    <= sER_Strip + 1;
+              sER_ReadAddr <= std_logic_vector(to_unsigned(sER_Strip + 1, pUSEDW_WIDTH));
+              sCalibState  <= ER_SIG_WAIT;
+            else
+              -- Threshold data are exposed directly by CALIB_RAM with DSP, no computation needed
+              -- Start the flag computation.
+              oSMA_priority   <= '1';
+
+              sFlag_Compare   <= (others => (others => '0'));
+              sFlag_VA_done   <= '0';
+              sFlag_cnt       <= 0;
+              sSMA_InsertOnce <= '0';
+              sSMA_Valid_rst  <= '1';
+
+              sFlag_ReadAddr  <= fFlagAddr('0', 0);
+              sFlag_WriteAddr <= fFlagAddr('0', 0);
+
+              sCalibState <= RSF_FETCH;
+            end if;
           end if;
 
         ----------------------------------------------------------------------
@@ -711,7 +857,40 @@ begin
             else
               sFlag_VA_done <= '0';
               oSMA_priority <= '0';
-              sCalibState   <= IDLE;
+              -- The FLG RAM now contains both RSF and SF flag bits.
+              -- Mirror the final flag map to Event RAM as well.
+              sCalibState   <= ER_FLG_INIT;
+            end if;
+          end if;
+
+        -- Final FLG dump toward Event RAM
+        when ER_FLG_INIT =>
+          sER_Adc      <= 0;
+          sER_Strip    <= 0;
+          sER_ReadAddr <= (others => '0');
+          sCalibState  <= ER_FLG_WAIT;
+
+        when ER_FLG_WAIT =>
+          -- CALIB_RAM read latency alignment.
+          sCalibState <= ER_FLG_SEND;
+
+        when ER_FLG_SEND =>
+          oER_W_ADDR <= std_logic_vector(
+            to_unsigned((sER_Adc * pADC_STRIPS) + sER_Strip, oER_W_ADDR'length)
+          );
+          oER_DATA <= sFlgOut.DATA(sER_Adc); --@suppress
+          oER_WE   <= '1';
+
+          if sER_Adc /= pADC_NUM - 1 then
+            sER_Adc <= sER_Adc + 1;
+          else
+            sER_Adc <= 0;
+            if sER_Strip /= pADC_STRIPS - 1 then
+              sER_Strip    <= sER_Strip + 1;
+              sER_ReadAddr <= std_logic_vector(to_unsigned(sER_Strip + 1, pUSEDW_WIDTH));
+              sCalibState  <= ER_FLG_WAIT;
+            else
+              sCalibState <= IDLE;
             end if;
           end if;
 

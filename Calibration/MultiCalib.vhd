@@ -103,15 +103,15 @@ begin
     ACCU : parametric_ram_tp
         generic map(
             pWIDTH       => pACC_WIDTH,
-            pDEPTH       => (pACC_WIDTH*pADC_NUM),
+            pDEPTH       => pADC_STRIPS,
             pUSEDW_WIDTH => pUSEDW_WIDTH,
             pFORCE_MLAB  => 0
         )
         port map(
             iCLK     => iCLK,
             iData    => sWDATA(i), -- @suppress
-            iRd_Addr => sRADDR(i), -- @suppress
-            iWr_Addr => sWADDR(i), -- @suppress
+            iRd_Addr => sRADDR(i), 
+            iWr_Addr => sWADDR(i), 
             iWr_En   => sWE(i),
             oData    => sRDATA(i)  -- @suppress
         );
@@ -181,7 +181,7 @@ begin
                 sAccPipe(adc) <= std_logic_vector(vSum); -- @suppress
 
                 sWDATA(adc) <= std_logic_vector(vSum); -- @suppress
-                sWADDR(adc) <= std_logic_vector(to_unsigned(sStrp_cnt, 7));
+                sWADDR(adc) <= std_logic_vector(to_unsigned(sStrp_cnt, pUSEDW_WIDTH));
                 sWE(adc)    <= '1';
 
                 sRADDR(adc) <= safe_addr(sStrp_cnt);
@@ -192,14 +192,13 @@ begin
             else
               -- eventi successivi: read-modify-write su RAM
               for adc in 0 to pADC_NUM-1 loop
-                sRADDR(adc) <= std_logic_vector(to_unsigned(sStrp_cnt, 7));
+                sRADDR(adc) <= std_logic_vector(to_unsigned(sStrp_cnt, pUSEDW_WIDTH));
               end loop;
 
               state <= ACC_FETCH;
             end if;
           end if;
 
-        -- Potrebbe essere superfluo dato che con safe_addr ho già fatto il fetch corretto, però si lascia per risurezza.
         when ACC_FETCH =>
           state <= ACC_UPDATE;
 
@@ -212,7 +211,7 @@ begin
             sAccPipe(adc) <= std_logic_vector(vSum); -- @suppress
 
             sWDATA(adc) <= std_logic_vector(vSum); -- @suppress
-            sWADDR(adc) <= std_logic_vector(to_unsigned(sStrp_cnt, 7));
+            sWADDR(adc) <= std_logic_vector(to_unsigned(sStrp_cnt, pUSEDW_WIDTH));
             sWE(adc)    <= '1';
 
             sRADDR(adc) <= safe_addr(sStrp_cnt);
@@ -231,17 +230,19 @@ begin
             sStrp_cnt <= sStrp_cnt + 1;
           end if;
 
-          oWA <= sMCMode & std_logic_vector(to_unsigned(sStrp_cnt, 7)); -- @suppress
+          oWA <= sMCMode & std_logic_vector(to_unsigned(sStrp_cnt, pUSEDW_WIDTH));
 
           if sMCMode = "00" then
             for i in 0 to pADC_NUM - 1 loop
                 oDATA(i)  <= sAccPipe(i)(pDATA_WIDTH+9 downto 10); -- @suppress
+                -- ACC in ADC8 b bbbb bbbb bbbb xxx yyyy yyyy yy
             end loop;
           end if;
 
           if (sMCMode = "01") or (sMCMode = "10") then
             for adc in 0 to pADC_NUM-1 loop
-              oSQRT_MSG(adc) <= "00" & sAccPipe(adc)(pACC_WIDTH-1 downto 2); -- @suppress
+              oSQRT_MSG(adc) <= "000000" & sAccPipe(adc)(pACC_WIDTH-1 downto 6); -- @suppress -- ADC1024 to ROOT
+                -- ACC in ADC64 ||000000 bbbb kkkk kkkk kkkk xxxx xxyy yy||yy yyyy
             end loop;
           end if;
 
@@ -275,7 +276,7 @@ begin
 
         when SQRT =>
           if iSQRT_Done = '1' then
-            oDATA  <= iSQRT_MSG;
+            oDATA  <= iSQRT_MSG; -- ADC32 from ADC1024
 
             oWEN <= '1';
 

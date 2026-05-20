@@ -26,6 +26,8 @@ end entity SQRT_wrap;
 
 architecture RTL of SQRT_wrap is
 
+    signal sSQRT_Done : std_logic_vector(pADC_NUM-1 downto 0);
+
 begin
 
     gen_SQRT : for i in 0 to pADC_NUM-1 generate
@@ -36,8 +38,11 @@ begin
                 iSTART => iSQRT_Start,
                 iDATA  => iSQRT_MSG(i),
                 oROOT  => oSQRT_MSG(i),
-                oDONE  => oSQRT_Done        -- Produce 1 dato che tutti sono simultanei
+                oDONE  => sSQRT_Done(i)        
             );  
     end generate;
+
+    -- Tutte le radici devono aver terminato
+    oSQRT_Done <= '1' when sSQRT_Done = (sSQRT_Done'range => '1') else '0';
 
 end architecture RTL;
