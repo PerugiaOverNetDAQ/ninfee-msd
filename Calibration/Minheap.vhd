@@ -2,7 +2,8 @@
 --!@brief Minheap implementation in VHDL.
 --!@author Luca Russo, luca.russo@cern.ch, luca.russo912@gmail.com
 --!@date 29/04/2026
---!@version 1.6.1 - 27/06/2025 -
+--!@version 1.6.2 - replace_root command to reduce latency -
+
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
@@ -20,6 +21,8 @@ entity minheap is
         iINS_en   : in  std_logic;
         iINS_data : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
         iEXT_en   : in  std_logic;
+        iREP_en   : in  std_logic;
+        iREP_data : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
         --oDATA     : out std_logic_vector(pDATA_WIDTH-1 downto 0);
         --oVALID    : out std_logic;
         oBusy     : out std_logic;
@@ -84,6 +87,9 @@ begin
             case state is
                 when IDLE =>
                     --oVALID <= '0';
+
+                    -- replace_root mantiene invariato heap_count e sostituisce heap(0) con iREP_data, poi ripristina la proprietà di
+                    -- MinHeap tramite heapify_down. Utilizzata in SMA per migliorare le performance evitando extract + insert.
                     if (iINS_en = '1') and (heap_count < pHEAP_SIZE) then
                         ins_idx := heap_count;                 -- 0..pHEAP_SIZE-1 (sicuro)
                         heap(ins_idx) <= signed(iINS_data);
@@ -107,6 +113,17 @@ begin
                             --oBusy  <= '0';
                             state  <= IDLE;
                         end if;
+
+                    elsif iREP_en = '1' then
+                        if heap_count > 0 then
+                            heap(0) <= signed(iREP_data);
+                            current_index <= 0;
+                            --oBusy  <= '1';
+                            state <= HEAPIFY_DOWN;
+                        else
+                            state <= IDLE;
+                        end if;
+
                     else
                         --oBusy <= '0';
                         state <= IDLE;
@@ -161,7 +178,11 @@ begin
                         state <= HEAPIFY_DOWN;
                     else
                         state <= IDLE;
-                        root_element <= std_logic_vector(heap(0));
+                        if heap_count > 0 then
+                            root_element <= std_logic_vector(heap(0));
+                        else
+                            root_element <= (others => '0');
+                        end if;
                         --oBusy <= '0';
                     end if;
 

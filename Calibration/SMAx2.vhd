@@ -17,7 +17,7 @@ entity StreamingMedianOfMedian is
     );
     port (
         iCLK      : in  std_logic;
-        iRST     : in  std_logic;
+        iRST      : in  std_logic;
         iINS_en   : in  std_logic;
         iINS_data : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
         oMedian   : out std_logic_vector(pDATA_WIDTH-1 downto 0);

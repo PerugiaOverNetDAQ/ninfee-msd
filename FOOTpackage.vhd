@@ -339,14 +339,18 @@ package FOOTpackage is
           pDATA_WIDTH : integer := 8   -- Larghezza dei dati (8 bit)
       );
       port (
-          iCLK      : in  std_logic;
-          iRST      : in  std_logic;
-          iINS_en   : in  std_logic;
-          iINS_data : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
-          iEXT_en   : in  std_logic;
-          oBusy     : out std_logic;
-          oCount    : out integer range 0 to pHEAP_SIZE;
-          oRoot     : out std_logic_vector(pDATA_WIDTH-1 downto 0) 
+        iCLK      : in  std_logic;
+        iRST      : in  std_logic;
+        iINS_en   : in  std_logic;
+        iINS_data : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
+        iEXT_en   : in  std_logic;
+        iREP_en   : in  std_logic;
+        iREP_data : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
+        --oDATA     : out std_logic_vector(pDATA_WIDTH-1 downto 0);
+        --oVALID    : out std_logic;
+        oBusy     : out std_logic;
+        oCount    : out integer range 0 to pHEAP_SIZE;
+        oRoot     : out std_logic_vector(pDATA_WIDTH-1 downto 0)
       );
   end component minheap;
 
@@ -356,14 +360,18 @@ package FOOTpackage is
           pDATA_WIDTH : integer := 8
       );
       port (
-          iCLK      : in  std_logic;
-          iRST      : in  std_logic;
-          iINS_en   : in  std_logic;
-          iINS_data : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
-          iEXT_en   : in  std_logic;
-          oBusy     : out std_logic;
-          oCount    : out integer range 0 to pHEAP_SIZE;
-          oRoot     : out std_logic_vector(pDATA_WIDTH-1 downto 0)
+        iCLK      : in  std_logic;
+        iRST      : in  std_logic;
+        iINS_en   : in  std_logic;
+        iINS_data : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
+        iEXT_en   : in  std_logic;
+        iREP_en   : in  std_logic;
+        iREP_data : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
+        --oDATA     : out std_logic_vector(pDATA_WIDTH-1 downto 0);
+        --oVALID    : out std_logic;
+        oBusy     : out std_logic;
+        oCount    : out integer range 0 to pHEAP_SIZE;
+        oRoot     : out std_logic_vector(pDATA_WIDTH-1 downto 0)
       );
   end component maxheap;
 

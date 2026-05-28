@@ -2,7 +2,8 @@
 --!@brief Maxheap implementation in VHDL.
 --!@author Luca Russo, luca.russo@cern.ch, luca.russo912@gmail.com
 --!@date 29/04/2026
---!@version 1.6.1 - 27/06/2025 -
+--!@version 1.6.2 - replace_root command to reduce latency -
+
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
@@ -19,7 +20,9 @@ entity maxheap is
         iRST      : in  std_logic;
         iINS_en   : in  std_logic;
         iINS_data : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
-        iEXT_en   : in  std_logic;       
+        iEXT_en   : in  std_logic;
+        iREP_en   : in  std_logic;
+        iREP_data : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
         --oDATA     : out std_logic_vector(pDATA_WIDTH-1 downto 0);
         --oVALID    : out std_logic;
         oBusy     : out std_logic;
@@ -37,10 +40,10 @@ architecture Behavioral of maxheap is
     type heap_array is array (0 to pHEAP_SIZE-1) of signed(pDATA_WIDTH-1 downto 0);
     signal heap       : heap_array := (others => (others => '0'));
     signal heap_count : cnt_t := 0;
-    
+
     type state_type is (IDLE, HEAPIFY_UP, HEAPIFY_DOWN);
     signal state : state_type;
-    
+
     attribute syn_encoding : string;
     attribute syn_encoding of state : signal is "onehot";
 
@@ -79,11 +82,14 @@ begin
             --oVALID <= '0';
             --oBusy  <= '0';
             --oDATA  <= (others => '0');
-        
+
         elsif rising_edge(iCLK) then
             case state is
                 when IDLE =>
                     --oVALID <= '0';
+
+                    -- replace_root mantiene invariato heap_count e sostituisce heap(0) con iREP_data, poi ripristina la proprietà di
+                    -- MaxHeap tramite heapify_down. Utilizzata in SMA per migliorare le performance evitando extract + insert.
                     if (iINS_en = '1') and (heap_count < pHEAP_SIZE) then
                         ins_idx := heap_count;                 -- 0..pHEAP_SIZE-1 (sicuro)
                         heap(ins_idx) <= signed(iINS_data);
@@ -91,7 +97,7 @@ begin
                         heap_count <= heap_count + 1;
                         --oBusy  <= '1';
                         state  <= HEAPIFY_UP;
-                    
+
                     elsif iEXT_en = '1' then
                         if heap_count > 0 then
                             --oDATA  <= std_logic_vector(heap(0)); -- Metto in output la radice
@@ -107,11 +113,22 @@ begin
                             --oBusy  <= '0';
                             state  <= IDLE;
                         end if;
+
+                    elsif iREP_en = '1' then
+                        if heap_count > 0 then
+                            heap(0) <= signed(iREP_data);
+                            current_index <= 0;
+                            --oBusy  <= '1';
+                            state <= HEAPIFY_DOWN;
+                        else
+                            state <= IDLE;
+                        end if;
+
                     else
                         --oBusy <= '0';
                         state <= IDLE;
                     end if;
-                
+
                 when HEAPIFY_UP =>
                     --oBusy <= '1';
                     if current_index = 0 then
@@ -131,14 +148,14 @@ begin
                             --oBusy <= '0';
                         end if;
                     end if;
-                
+
                 when HEAPIFY_DOWN =>
                     --oBusy <= '1';
                     --oVALID <= '0';
                     left_i  := 2 * current_index + 1; -- Formula per il figlio sx, parto dalla radice alla prima iter
                     right_i := 2 * current_index + 2; -- Formula per il figlio dx, parto dalla radice alla prima iter
                     largest := current_index;         -- Imposto come "largest" la radice alla prima iter, si parla di indice
-                    
+
                     if left_i < heap_count then
                         left_idx := left_i;                       -- cast sicuro: ora 0..pHEAP_SIZE-1
                         if heap(left_idx) > heap(largest) then
@@ -154,14 +171,18 @@ begin
 
                     -- In questo caso do priorità al figlio destro.
                     if largest /= current_index then
-                        temp := heap(current_index); 
+                        temp := heap(current_index);
                         heap(current_index) <= heap(largest);
-                        heap(largest) <= temp;    -- Temp era stata assegnata immediatamente 
+                        heap(largest) <= temp;    -- Temp era stata assegnata immediatamente
                         current_index <= largest;
                         state <= HEAPIFY_DOWN;
                     else
                         state <= IDLE;
-                        root_element <= std_logic_vector(heap(0));
+                        if heap_count > 0 then
+                            root_element <= std_logic_vector(heap(0));
+                        else
+                            root_element <= (others => '0');
+                        end if;
                         --oBusy <= '0';
                     end if;
 
