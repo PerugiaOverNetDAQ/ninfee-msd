@@ -68,10 +68,11 @@ architecture Behavioral of StreamingMedian is
 
 begin
 
-    MAX: maxheap
+    MAX: Heap
         generic map(
-            pHEAP_SIZE  => pHEAP_SIZE,
-            pDATA_WIDTH => pDATA_WIDTH
+            pHEAP_SIZE      => pHEAP_SIZE,
+            pDATA_WIDTH     => pDATA_WIDTH,
+            pIS_MAX_HEAP    => true
         )
         port map(
             iCLK       => iCLK,
@@ -81,17 +82,16 @@ begin
             iEXT_en    => sMax_iEXT_en,
             iREP_en    => sMax_iREP_en,
             iREP_data  => sMax_iREP_data,
-            -- oDATA,
-            -- oVALID,
             oBusy      => sMax_oBusy,
             oCount     => sMax_oCount,
             oRoot      => sMax_oRoot
         );
 
-    MIN: minheap
+    MIN: Heap
         generic map(
-            pHEAP_SIZE  => pHEAP_SIZE,
-            pDATA_WIDTH => pDATA_WIDTH
+            pHEAP_SIZE      => pHEAP_SIZE,
+            pDATA_WIDTH     => pDATA_WIDTH,
+            pIS_MAX_HEAP    => false
         )
         port map(
             iCLK       => iCLK,
@@ -101,8 +101,6 @@ begin
             iEXT_en    => sMin_iEXT_en,
             iREP_en    => sMin_iREP_en,
             iREP_data  => sMin_iREP_data,
-            -- oDATA,
-            -- oVALID,
             oBusy      => sMin_oBusy,
             oCount     => sMin_oCount,
             oRoot      => sMin_oRoot

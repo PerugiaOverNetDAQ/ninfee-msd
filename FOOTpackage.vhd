@@ -333,10 +333,11 @@ package FOOTpackage is
     );
   end component PedestalSubtraction;
 
-  component minheap is
+  component Heap is
       generic (
-          pHEAP_SIZE  : integer := 8;  -- Numero elementi massimi heap
-          pDATA_WIDTH : integer := 8   -- Larghezza dei dati (8 bit)
+          pHEAP_SIZE    : integer := 8;  -- Numero elementi massimi heap
+          pDATA_WIDTH   : integer := 8;   -- Larghezza dei dati (8 bit)
+          pIS_MAX_HEAP  : boolean := true
       );
       port (
         iCLK      : in  std_logic;
@@ -352,28 +353,7 @@ package FOOTpackage is
         oCount    : out integer range 0 to pHEAP_SIZE;
         oRoot     : out std_logic_vector(pDATA_WIDTH-1 downto 0)
       );
-  end component minheap;
-
-  component maxheap is
-      generic (
-          pHEAP_SIZE  : integer := 8;
-          pDATA_WIDTH : integer := 8
-      );
-      port (
-        iCLK      : in  std_logic;
-        iRST      : in  std_logic;
-        iINS_en   : in  std_logic;
-        iINS_data : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
-        iEXT_en   : in  std_logic;
-        iREP_en   : in  std_logic;
-        iREP_data : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
-        --oDATA     : out std_logic_vector(pDATA_WIDTH-1 downto 0);
-        --oVALID    : out std_logic;
-        oBusy     : out std_logic;
-        oCount    : out integer range 0 to pHEAP_SIZE;
-        oRoot     : out std_logic_vector(pDATA_WIDTH-1 downto 0)
-      );
-  end component maxheap;
+  end component heap;
 
   component StreamingMedian is
       generic (
