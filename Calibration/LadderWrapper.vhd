@@ -128,12 +128,12 @@ architecture Behavioral of LadderWrapper is
     signal sCN_WeOut : std_logic;
 
     -- CN Subtraction FIFO
-    signal sCNSubFifo_Q     : t_FOOT_lef_data;
-    signal sCNSubFifo_Empty : std_logic;
-    signal sCNSubFifo_RE    : std_logic;
-    signal sCNSubFifo_Data  : t_FOOT_lef_data;
-    signal sCNSubFifo_Full  : std_logic; -- Unused  --@suppress
-    signal sCNSubFifo_WE    : std_logic;
+    -- signal sCNSubFifo_Q     : t_FOOT_lef_data;
+    -- signal sCNSubFifo_Empty : std_logic;
+    -- signal sCNSubFifo_RE    : std_logic;
+    -- signal sCNSubFifo_Data  : t_FOOT_lef_data;
+    -- signal sCNSubFifo_Full  : std_logic; -- Unused  --@suppress
+    -- signal sCNSubFifo_WE    : std_logic;
 
     -- CN FIFO
     signal sCNFifo_Q     : t_FOOT_lef_data;
@@ -206,17 +206,17 @@ architecture Behavioral of LadderWrapper is
     -- attribute syn_preserve of sCalRestart : signal is true;
 
     -- SMA INTERFACE INPUT
-    signal sSMA_rst           : std_logic;
-    signal sSMA_putd          : std_logic_vector(pADC_NUM-1 downto 0);
-    signal sSMA_i_data        : t_FOOT_lef_data;
-    signal sSMA_o_data        : t_FOOT_lef_data;
-    signal sSMA_valid         : std_logic_vector(pADC_NUM-1 downto 0);
-    signal sSMA_flush         : std_logic_vector(pADC_NUM-1 downto 0);
+    -- signal sSMA_rst           : std_logic;                                  
+    -- signal sSMA_putd          : std_logic_vector(pADC_NUM-1 downto 0);      
+    -- signal sSMA_i_data        : t_FOOT_lef_data;                            
+    -- signal sSMA_o_data        : t_FOOT_lef_data;                            
+    -- signal sSMA_valid         : std_logic_vector(pADC_NUM-1 downto 0);
+    -- signal sSMA_flush         : std_logic_vector(pADC_NUM-1 downto 0);
 
     -- SMA FROM CN
     signal sSMA_CN_rst           : std_logic;
     signal sSMA_CN_putd          : std_logic_vector(pADC_NUM-1 downto 0);
-    signal sSMA_CN_i_data        : t_FOOT_lef_data;
+    signal sSMA_CN_i_data        : t_FOOT_lef_data; --@suppress
     signal sSMA_CN_o_data        : t_FOOT_lef_data;
     signal sSMA_CN_valid         : std_logic_vector(pADC_NUM-1 downto 0);
     signal sSMA_CN_flush         : std_logic_vector(pADC_NUM-1 downto 0);
@@ -229,6 +229,25 @@ architecture Behavioral of LadderWrapper is
     signal sSMA_CAL_o_data        : t_FOOT_lef_data;
     signal sSMA_CAL_valid         : std_logic_vector(pADC_NUM-1 downto 0);
     signal sSMA_CAL_flush         : std_logic_vector(pADC_NUM-1 downto 0);
+
+    -- New CN RAM + SMA wrapper interfaces
+    signal sSMA_CN_ready          : std_logic; --@suppress
+    signal sSMA_CN_WR_en          : std_logic;
+    signal sSMA_CN_WR_addr        : std_logic_vector(ceil_log2(cFE_CHANNELS)-1 downto 0);
+    signal sSMA_CN_WR_bank        : std_logic;
+    signal sSMA_CN_WR_data        : t_FOOT_lef_data;
+    signal sSMA_CN_RD_req         : std_logic;
+    signal sSMA_CN_RD_en          : std_logic;
+    signal sSMA_CN_RD_addr        : std_logic_vector(ceil_log2(cFE_CHANNELS)-1 downto 0);
+    signal sSMA_CN_RD_bank        : std_logic;
+    signal sSMA_CN_RD_grant       : std_logic;
+    signal sSMA_CN_RD_data        : t_FOOT_lef_data;
+    signal sSMA_CN_RD_valid       : std_logic;
+
+    signal sSMA_CAL_ready         : std_logic;
+    signal sSMA_CAL_WR_en         : std_logic;
+    signal sSMA_CAL_WR_addr       : std_logic_vector(ceil_log2(cFE_CHANNELS)-1 downto 0);
+    signal sSMA_busy              : std_logic_vector(pADC_NUM-1 downto 0); --@suppress
 
 begin
     sRst    <= sCalRst or iRST;
@@ -262,23 +281,53 @@ begin
                              (sCalPending = '1') and
                              (iTRIG = '1') else
                     '0';
--- SMA DEC
-    SMA_WRAP : StreamingMedianOfMedianWrap
+-- CN RAM + SMA wrapper. One 128-word ping-pong RAM, one arbiter and one
+-- pointer-SMA are instantiated for each ADC.
+    SMA_WRAP_0 : SMA_wrap
         generic map(
             pHEAP_SIZE  => pHEAP_SIZE,
             pCALC_MODE  => cSMA_CALC_MODE,
             pADC_NUM    => pADC_NUM,
-            pDATA_WIDTH => pDATA_WIDTH
+            pDATA_WIDTH => pDATA_WIDTH,
+            pRAM_DEPTH  => 2*cFE_CHANNELS,
+            pADDR_WIDTH => ceil_log2(cFE_CHANNELS),
+            pFORCE_MLAB => 0                        -- Can't use MLAB with this config
         )
         port map(
-            iCLK      => iCLK,
-            iRST      => sSMA_rst,          
-            iINS_en   => sSMA_putd,         
-            iINS_data => sSMA_i_data,          
-            oMedian   => sSMA_o_data,           
-            iFlush    => sSMA_flush,            
-            oValid    => sSMA_valid,            
-            oBusy_SMA => open
+            iCLK => iCLK,
+            iRST => sRst,
+
+            iCN_RST      => sSMA_CN_rst,
+            iCN_WR_en    => sSMA_CN_WR_en,
+            iCN_WR_bank  => sSMA_CN_WR_bank,
+            iCN_WR_addr  => sSMA_CN_WR_addr,
+            iCN_WR_data  => sSMA_CN_WR_data,
+            iCN_INS_en   => sSMA_CN_putd,
+            iCN_Flush    => sSMA_CN_flush,
+            oCN_Median   => sSMA_CN_o_data,
+            oCN_Valid    => sSMA_CN_valid,
+            oCN_Ready    => sSMA_CN_ready,
+
+            iCN_RD_req   => sSMA_CN_RD_req,
+            iCN_RD_en    => sSMA_CN_RD_en,
+            iCN_RD_bank  => sSMA_CN_RD_bank,
+            iCN_RD_addr  => sSMA_CN_RD_addr,
+            oCN_RD_grant => sSMA_CN_RD_grant,
+            oCN_RD_data  => sSMA_CN_RD_data,
+            oCN_RD_valid => sSMA_CN_RD_valid,
+
+            iCAL_priority => sSMA_CAL_priority,
+            iCAL_RST      => sSMA_CAL_rst,
+            iCAL_WR_en    => sSMA_CAL_WR_en,
+            iCAL_WR_addr  => sSMA_CAL_WR_addr,
+            iCAL_WR_data  => sSMA_CAL_i_data,
+            iCAL_INS_en   => sSMA_CAL_putd,
+            iCAL_Flush    => sSMA_CAL_flush,
+            oCAL_Median   => sSMA_CAL_o_data,
+            oCAL_Valid    => sSMA_CAL_valid,
+            oCAL_Ready    => sSMA_CAL_ready,
+
+            oBusy_SMA     => sSMA_busy
         );
     
     PED_SUB : PedestalSubtraction
@@ -300,26 +349,6 @@ begin
             oBUSY        => sPedSub_Busy
         );
 
-    -- FIFO to hold data while computing CN
-    CN_SUB_FIFO : FOOT_FIFO
-        generic map(
-            pADC_NUM     => pADC_NUM,
-            pADC_STRIPS  => pADC_STRIPS,
-            pDATA_WIDTH  => pDATA_WIDTH
-        )
-        port map(
-            iCLK    => iCLK,
-            iRST    => sRst,
-            iDATA   => sCNSubFifo_Data,
-            iRE     => sCNSubFifo_RE,
-            iWE     => sCNSubFifo_WE,
-            oQ      => sCNSubFifo_Q,
-            oEMPTY  => sCNSubFifo_Empty,
-            oAEMPTY => open,
-            oFULL   => sCNSubFifo_Full,
-            oAFULL  => open
-        );
-
     CN_SUB : CNSubtraction
         generic map(
             pADC_STRIPS => pADC_STRIPS,
@@ -331,9 +360,17 @@ begin
             iEN           => sCN_En,
             iWORD         => sCN_Data,
             iPUTD         => sCN_WeIn,
-            oRE           => sCNSubFifo_RE,    -- From FIFO_0
-            iDATA         => sCNSubFifo_Q,
-            iEMPTY        => sCNSubFifo_Empty,
+            oCN_RAM_WR_en   => sSMA_CN_WR_en,
+            oCN_RAM_WR_bank => sSMA_CN_WR_bank,
+            oCN_RAM_WR_addr => sSMA_CN_WR_addr,
+            oCN_RAM_WR_data => sSMA_CN_WR_data,
+            oCN_RAM_RD_req   => sSMA_CN_RD_req,
+            oCN_RAM_RD_en    => sSMA_CN_RD_en,
+            oCN_RAM_RD_bank  => sSMA_CN_RD_bank,
+            oCN_RAM_RD_addr  => sSMA_CN_RD_addr,
+            iCN_RAM_RD_grant => sSMA_CN_RD_grant,
+            iCN_RAM_RD_data  => sSMA_CN_RD_data,
+            iCN_RAM_RD_valid => sSMA_CN_RD_valid,
             oRHT_ADDR     => sRHT_Ram_Addr,
             iRHT_DATA     => sRHT_Ram_Data,
             oQ            => sCN_Q,
@@ -414,34 +451,13 @@ begin
             oSMA_RST          => sSMA_CAL_rst,
             oSMA_INS_en       => sSMA_CAL_putd,
             oSMA_INS_data     => sSMA_CAL_i_data,
+            oSMA_WR_en        => sSMA_CAL_WR_en,
+            oSMA_WR_addr      => sSMA_CAL_WR_addr,
+            iSMA_Ready        => sSMA_CAL_ready,
             iSMA_Median       => sSMA_CAL_o_data,
             oSMA_Flush        => sSMA_CAL_flush,
             iSMA_Valid        => sSMA_CAL_valid
         );
-
-  -- SMA MUX
-  process(all)
-  begin
-    if sSMA_CAL_priority = '1' then
-        -- FROM CAL TO SMA
-        sSMA_rst        <= sSMA_CAL_rst;   
-        sSMA_putd       <= sSMA_CAL_putd;
-        sSMA_i_data     <= sSMA_CAL_i_data;
-        sSMA_flush      <= sSMA_CAL_flush;
-        -- FROM SMA TO CAL
-        sSMA_CAL_o_data <= sSMA_o_data;
-        sSMA_CAL_valid  <= sSMA_valid;
-    else
-        -- FROM CN TO SMA
-        sSMA_rst        <= sSMA_CN_rst;   
-        sSMA_putd       <= sSMA_CN_putd;
-        sSMA_i_data     <= sSMA_CN_i_data;
-        sSMA_flush      <= sSMA_CN_flush;
-        -- FROM SMA TO CN
-        sSMA_CN_o_data  <= sSMA_o_data;
-        sSMA_CN_valid   <= sSMA_valid;
-    end if;
-  end process;
 
     -- Signals Mapping
     -- Internal PutD gated: replicate iPUTD only when processing events
@@ -451,8 +467,6 @@ begin
     sPedSub_WeIn    <= sPutDGated when sLW_State /= IDLE else '0';
     sCN_Data        <= sPedSub_Q when sLW_State /= IDLE else (others => (others => '0'));
     sCN_WeIn        <= sPedSub_WeOut when sLW_State /= IDLE else '0';
-    sCNSubFifo_Data <= sPedSub_Q when sLW_State /= IDLE else (others => (others => '0'));
-    sCNSubFifo_WE   <= sPedSub_WeOut when sLW_State /= IDLE else '0';
     sCNFifo_Data    <= sCN_Q when sLW_State /= IDLE else (others => (others => '0'));
     sCNFifo_WE      <= sCN_WeOut when sLW_State /= IDLE else '0';
     sCWData         <= sCNFifo_Q when sLW_State /= IDLE else (others => (others => '0'));
