@@ -1,8 +1,8 @@
 --!@file SMA.vhd
---!@brief Streaming Median Algorithm implementation in VHDL.
+--!@brief Streaming Median Algorithm con ordinamento parziale.
 --!@author Luca Russo, luca.russo@cern.ch, luca.russo912@gmail.com
 --!@date 22/05/2026
---!@version 1.6.3 - replace_root latency opt -
+--!@version 1.7.0 - selezione parziale della mediana bassa -
 
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
@@ -12,9 +12,9 @@ use work.FOOTpackage.all;
 
 entity StreamingMedian is
     generic (
-        pHEAP_SIZE  : integer := 8; -- VA / 2. 128 strip = 64 heap size
-        pCALC_MODE  : natural := 0;
-        pDATA_WIDTH : integer := 16
+        pHEAP_SIZE  : integer := 4; -- Metà elementi
+        pCALC_MODE  : natural := 0; -- 0: media dei due centrali; 1: centrale alto; >1: centrale basso.
+        pDATA_WIDTH : integer := 16 
     );
     port (
         iCLK      : in  std_logic;
@@ -29,271 +29,161 @@ end StreamingMedian;
 
 architecture Behavioral of StreamingMedian is
 
-    type state_type is (
-        IDLE,
-        HOLD_RESET,
-        WAIT_INSERT,
-        INSERT,
-        WAIT_DONE
-    );
-    signal state : state_type;
+    -- serve conoscere solo i 4 valori più piccoli e la mediana è il quarto.
+    -- Per media e mediana alta serve anche il primo valore della meta' alta.
+    function fKeep_size(
+        heap_size : integer;
+        mode      : natural
+    ) return integer is
+    begin
+        if (mode = 0) or (mode = 1) then
+            return heap_size + 1;
+        else
+            return heap_size;
+        end if;
+    end function;
 
-    attribute syn_encoding : string;
-    attribute syn_encoding of state : signal is "onehot";
+    
+    constant cWINDOW_SIZE : integer := pHEAP_SIZE * 2;                      -- Numero massimo dati prima di RST automatico
+    constant cKEEP_SIZE   : integer := fKeep_size(pHEAP_SIZE, pCALC_MODE);  -- Numero di registri realmente conservati ordinati
 
-    -- MaxHeap
-    signal sMax_iINS_en, sMax_iEXT_en, sMax_iREP_en    : std_logic := '0';
-    signal sMax_iINS_data, sMax_iREP_data, sMax_oRoot  : std_logic_vector(pDATA_WIDTH-1 downto 0);
-    signal sMax_oBusy    : std_logic;
-    signal sMax_oCount   : integer range 0 to pHEAP_SIZE;
+    subtype t_SMA_total is integer range 0 to cWINDOW_SIZE;                 -- Conta dati totali
+    subtype t_SMA_keep  is integer range 0 to cKEEP_SIZE;                   -- Conta dati effettivamente salvati in Keep
 
-    -- MinHeap
-    signal sMin_iINS_en, sMin_iEXT_en, sMin_iREP_en    : std_logic := '0';
-    signal sMin_iINS_data, sMin_iREP_data, sMin_oRoot  : std_logic_vector(pDATA_WIDTH-1 downto 0);
-    signal sMin_oBusy    : std_logic;
-    signal sMin_oCount   : integer range 0 to pHEAP_SIZE;
+    type t_SMA_keep_data is array (0 to cKEEP_SIZE-1) of signed(pDATA_WIDTH-1 downto 0); --Array con solo valori utili alla mediana
 
-    signal sKeep_Inserted : std_logic_vector(pDATA_WIDTH-1 downto 0);
-
-    -- Maschera di attesa:
-    --   sWait_Max = '1' se l'operazione corrente coinvolge il MaxHeap
-    --   sWait_Min = '1' se l'operazione corrente coinvolge il MinHeap
-    signal sWait_Max : std_logic := '0';
-    signal sWait_Min : std_logic := '0';
-
-    signal sMedian_Int : std_logic_vector(pDATA_WIDTH-1 downto 0);
-
-    -- Segnali di reset separati per MaxHeap e MinHeap
-    signal sRst_MaxHeap, sRst_MinHeap : std_logic := '0';
+    signal sKeep        : t_SMA_keep_data := (others => (others => '0'));   
+    signal sTotalCount  : t_SMA_total := 0;                               
+    signal sStoredCount : t_SMA_keep := 0;                                 
+    signal sMedian_Int  : std_logic_vector(pDATA_WIDTH-1 downto 0) := (others => '0'); -- Mediana
+    signal sBusy_Int    : std_logic := '0';                                
 
 begin
 
-    MAX: Heap
-        generic map(
-            pHEAP_SIZE      => pHEAP_SIZE,
-            pDATA_WIDTH     => pDATA_WIDTH,
-            pIS_MAX_HEAP    => true
-        )
-        port map(
-            iCLK       => iCLK,
-            iRST       => sRst_MaxHeap,
-            iINS_en    => sMax_iINS_en,
-            iINS_data  => sMax_iINS_data,
-            iEXT_en    => sMax_iEXT_en,
-            iREP_en    => sMax_iREP_en,
-            iREP_data  => sMax_iREP_data,
-            oBusy      => sMax_oBusy,
-            oCount     => sMax_oCount,
-            oRoot      => sMax_oRoot
-        );
-
-    MIN: Heap
-        generic map(
-            pHEAP_SIZE      => pHEAP_SIZE,
-            pDATA_WIDTH     => pDATA_WIDTH,
-            pIS_MAX_HEAP    => false
-        )
-        port map(
-            iCLK       => iCLK,
-            iRST       => sRst_MinHeap,
-            iINS_en    => sMin_iINS_en,
-            iINS_data  => sMin_iINS_data,
-            iEXT_en    => sMin_iEXT_en,
-            iREP_en    => sMin_iREP_en,
-            iREP_data  => sMin_iREP_data,
-            oBusy      => sMin_oBusy,
-            oCount     => sMin_oCount,
-            oRoot      => sMin_oRoot
-        );
-
     oMedian <= sMedian_Int;
-    oBusy_SMA <= '1' when (sMax_oBusy = '1' or sMin_oBusy = '1') or state /= IDLE else '0';
+
+    -- Tutto si completa in un solo ciclo
+    -- Busy resta alto durante il ciclo di richiesta e nel ciclo di aggiornamento.
+    oBusy_SMA <= iINS_en or sBusy_Int;
 
     process(iCLK, iRST)
+        -- Variabili locali usate per calcolare il nuovo stato e la nuova mediana nello stesso clk del dato
+        variable vKeep        : t_SMA_keep_data;
+        variable vTotalCount  : t_SMA_total;
+        variable vStoredCount : t_SMA_keep;
+        variable vInsertPos   : integer range 0 to cKEEP_SIZE-1; -- Posizione in cui inserire il nuovo dato, tipo puntatore
+
+        -- Per gestire i flush anticipati
+        variable vIdxLow     : integer range 0 to cKEEP_SIZE-1; -- Indice centrale basso
+        variable vIdxHigh    : integer range 0 to cKEEP_SIZE-1; -- Indice centrale alto
+        variable vSum         : signed(pDATA_WIDTH downto 0); 
     begin
         if iRST = '1' then
-            state <= IDLE;
-
-            sMax_iINS_en <= '0';
-            sMin_iINS_en <= '0';
-            sMax_iEXT_en <= '0';
-            sMin_iEXT_en <= '0';
-            sMax_iREP_en <= '0';
-            sMin_iREP_en <= '0';
-
-            sMax_iINS_data <= (others => '0');
-            sMin_iINS_data <= (others => '0');
-            sMax_iREP_data <= (others => '0');
-            sMin_iREP_data <= (others => '0');
-
-            sMedian_Int <= (others => '0');
-            oValid <= '0';
-
-            sKeep_Inserted <= (others => '0');
-
-            sWait_Max <= '0';
-            sWait_Min <= '0';
-
-            sRst_MinHeap <= '1';
-            sRst_MaxHeap <= '1';
+            sKeep        <= (others => (others => '0'));
+            sTotalCount  <= 0;
+            sStoredCount <= 0;
+            sMedian_Int  <= (others => '0');
+            sBusy_Int    <= '0';
+            oValid       <= '0';
 
         elsif rising_edge(iCLK) then
-            -- Keep zero default
-            sMax_iINS_en <= '0';
-            sMin_iINS_en <= '0';
-            sMax_iEXT_en <= '0';
-            sMin_iEXT_en <= '0';
-            sMax_iREP_en <= '0';
-            sMin_iREP_en <= '0';
-            sRst_MinHeap <= '0';
-            sRst_MaxHeap <= '0';
-            oValid <= '0';
+            -- Default zero
+            oValid    <= '0';
+            sBusy_Int <= '0';
 
-            case state is
-                -- Extract + insert sullo stesso heap in questa versione viene evitata, che è 2 log n e si fa solo log n
-                when IDLE =>
-                    sWait_Max <= '0';
-                    sWait_Min <= '0';
+            if iINS_en = '1' then
+                -- Se pieno, il nuovo dato parte da reset
+                if sTotalCount = cWINDOW_SIZE then
+                    vKeep        := (others => (others => '0'));
+                    vTotalCount  := 0;
+                    vStoredCount := 0;
+                else
+                    vKeep        := sKeep;
+                    vTotalCount  := sTotalCount;
+                    vStoredCount := sStoredCount;
+                end if;
 
-                    -- Se gli heap sono pieni, resetta prima di iniziare una nuova 
-                    if (sMax_oCount + sMin_oCount) = pHEAP_SIZE*2 then
-                        sRst_MinHeap <= '1';
-                        sRst_MaxHeap <= '1';
+                vTotalCount := vTotalCount + 1;
 
-                        if iINS_en = '1' then
-                            sKeep_Inserted <= iINS_data;
-                            state <= HOLD_RESET;
+                -- Caso 1: array keep non è pieno, inserisco il nuovo dato nella posizione ordinata corretta
+                -- INSERTION SORT
+                if vStoredCount < cKEEP_SIZE then
+                    vInsertPos := vStoredCount;
+
+                    for i in 0 to cKEEP_SIZE-1 loop
+                        if (i < vStoredCount) and
+                           (signed(iINS_data) < vKeep(i)) and
+                           (vInsertPos = vStoredCount) then
+                            vInsertPos := i;
                         end if;
+                    end loop;
 
-                    elsif iINS_en = '1' then
-                        sKeep_Inserted <= iINS_data;
-                        state <= WAIT_INSERT;
-                    end if;
-
-                -- CLOCK WAIT, attende di propagare il segnale di clock agli heap sotto. 
-                -- Questo avviene solo ed unicamente se al ritorno in IDLE, alla verifica della grandezza degli heap mi arriva contestualmente un dato.
-                when HOLD_RESET =>
-                    state <= WAIT_INSERT;
-
-                -- DECISIONE INSERIMENTO
-                when WAIT_INSERT =>
-                    if (sMax_oBusy = '0') and (sMin_oBusy = '0') then
-
-                        -- CASO
-                        -- vuoto: il primo dato va nel MaxHeap.
-                        if (sMax_oCount = 0) and (sMin_oCount = 0) then
-                            sMax_iINS_data <= sKeep_Inserted;
-                            sMax_iINS_en   <= '1';
-
-                            sWait_Max <= '1';
-                            sWait_Min <= '0';
-                            state <= INSERT;
-
-                        -- CASO "sMax_oCount > sMin_oCount"
-                        -- MaxHeap ha già almeno un elemento in più. Dopo questo inserimento bisogna finire con i count uguali.
-                        -- Se il dato può stare nella metà alta, insert diretto nel MinHeap altrimenti se il dato appartiene alla metà bassa:
-                        --  vecchia root MaxHeap -> MinHeap  
-                        --  nuovo dato -> replace_root MaxHeap
-                        -- Operazioni partono in parallelo.            
-                        elsif sMax_oCount > sMin_oCount then
-                            if signed(sKeep_Inserted) >= signed(sMax_oRoot) then
-                                sMin_iINS_data <= sKeep_Inserted;
-                                sMin_iINS_en   <= '1';
-
-                                sWait_Max <= '0';
-                                sWait_Min <= '1';
-                                state <= INSERT;
-                            else
-                                sMin_iINS_data <= sMax_oRoot;
-                                sMin_iINS_en   <= '1';
-
-                                sMax_iREP_data <= sKeep_Inserted;
-                                sMax_iREP_en   <= '1';
-
-                                sWait_Max <= '1';
-                                sWait_Min <= '1';
-                                state <= INSERT;
-                            end if;
-
-                        -- CASO "sMax_oCount = sMin_oCount"
-                        -- Dopo l'inserimento il MaxHeap deve avere un elemento
-                        -- in più.
-                        -- Se il dato può stare nella metà bassa, insert diretto nel MaxHeap altrimenti:
-                        --     vecchia root MinHeap -> MaxHeap
-                        --     nuovo dato -> replace_root MinHeap
-                        -- In parallelo
-                        elsif sMax_oCount = sMin_oCount then
-                            if (sMin_oCount = 0) or (signed(sKeep_Inserted) <= signed(sMin_oRoot)) then
-                                sMax_iINS_data <= sKeep_Inserted;
-                                sMax_iINS_en   <= '1';
-
-                                sWait_Max <= '1';
-                                sWait_Min <= '0';
-                                state <= INSERT;
-                            else
-                                sMax_iINS_data <= sMin_oRoot;
-                                sMax_iINS_en   <= '1';
-
-                                sMin_iREP_data <= sKeep_Inserted;
-                                sMin_iREP_en   <= '1';
-
-                                sWait_Max <= '1';
-                                sWait_Min <= '1';
-                                state <= INSERT;
-                            end if;
-
-                        -- CASO "sMax_oCount < sMin_oCount"
-                        -- NON SUCCEDE MAI, ma inserito per mantenere il sistema bilanciato se per qualche ragione accade.
-                        -- E' tipo un caso base
-                        else
-                            if signed(sKeep_Inserted) <= signed(sMin_oRoot) then
-                                sMax_iINS_data <= sKeep_Inserted;
-                                sMax_iINS_en   <= '1';
-
-                                sWait_Max <= '1';
-                                sWait_Min <= '0';
-                                state <= INSERT;
-                            else
-                                sMax_iINS_data <= sMin_oRoot;
-                                sMax_iINS_en   <= '1';
-
-                                sMin_iREP_data <= sKeep_Inserted;
-                                sMin_iREP_en   <= '1';
-
-                                sWait_Max <= '1';
-                                sWait_Min <= '1';
-                                state <= INSERT;
-                            end if;
+                    -- Shifta a destra solo la porzione valida che deve fare spazio
+                    for i in cKEEP_SIZE-1 downto 1 loop
+                        if (i <= vStoredCount) and (i > vInsertPos) then
+                            vKeep(i) := vKeep(i-1);
                         end if;
+                    end loop;
+
+                    vKeep(vInsertPos) := signed(iINS_data);
+                    vStoredCount := vStoredCount + 1;
+
+                -- Caso 2: array keep pieno ma il nuovo dato entra comunque tra quelli di mediana
+                -- Il valore maggiore tra i conservati viene perso tanto non influisce più sulla mediana
+                elsif signed(iINS_data) < vKeep(cKEEP_SIZE-1) then
+                    vInsertPos := cKEEP_SIZE-1;
+
+                    -- INSERTION SORT
+                    for i in 0 to cKEEP_SIZE-1 loop
+                        if (signed(iINS_data) < vKeep(i)) and
+                           (vInsertPos = cKEEP_SIZE-1) then
+                            vInsertPos := i;
+                        end if;
+                    end loop;
+
+                    for i in cKEEP_SIZE-1 downto 1 loop
+                        if i > vInsertPos then
+                            vKeep(i) := vKeep(i-1);
+                        end if;
+                    end loop;
+
+                    vKeep(vInsertPos) := signed(iINS_data);
+                end if;
+
+                -- Aggiornamento stato
+                sKeep        <= vKeep;
+                sTotalCount  <= vTotalCount;
+                sStoredCount <= vStoredCount;
+
+                -- Calcolo della mediana sul numero reale di campioni presenti
+                -- Questo per restituire la mediana ad ogni iterazione
+                if (vTotalCount mod 2) = 0 then
+                    vIdxLow := (vTotalCount / 2) - 1;
+
+                    if pCALC_MODE = 0 then
+                        -- Media dei due centrali in mode 0
+                        vIdxHigh := vTotalCount / 2;
+                        vSum := resize(vKeep(vIdxLow), pDATA_WIDTH+1)
+                              + resize(vKeep(vIdxHigh), pDATA_WIDTH+1);
+                        sMedian_Int <= std_logic_vector(resize(shift_right(vSum, 1), pDATA_WIDTH));
+                    elsif pCALC_MODE = 1 then
+                        -- Mediana alta in mode 1
+                        vIdxHigh := vTotalCount / 2;
+                        sMedian_Int <= std_logic_vector(vKeep(vIdxHigh));
+                    else
+                        -- Mediana bassa, si usa questa di base, quindi la logica sopra viene deprecata
+                        sMedian_Int <= std_logic_vector(vKeep(vIdxLow));
                     end if;
+                else
+                    -- Se i campioni sono dispari c'è un solo centro
+                    vIdxLow := vTotalCount / 2;
+                    sMedian_Int <= std_logic_vector(vKeep(vIdxLow));
+                end if;
 
-                -- INSERIMENTO EFFETTIVO DEGLI ELEMENTI
-                when INSERT =>
-                    state <= WAIT_DONE;
-
-                -- Si attendono solo gli heap coinvolti nell'operazione
-                when WAIT_DONE =>
-                    if ((sWait_Max = '0') or (sMax_oBusy = '0')) and
-                       ((sWait_Min = '0') or (sMin_oBusy = '0')) then
-
-                        sMedian_Int <= CalcMedian( -- @suppress
-                            signed(sMax_oRoot),
-                            signed(sMin_oRoot),
-                            sMax_oCount,
-                            sMin_oCount,
-                            pCALC_MODE
-                        );
-
-                        oValid <= '1';
-                        sWait_Max <= '0';
-                        sWait_Min <= '0';
-                        state <= IDLE;
-                    end if;
-
-                when others => --@suppress
-                    state <= IDLE;
-
-            end case;
+                -- Mediana valid al clk successivo
+                oValid    <= '1';
+                sBusy_Int <= '1';
+            end if;
         end if;
     end process;
 
