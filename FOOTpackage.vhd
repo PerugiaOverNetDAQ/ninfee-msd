@@ -40,7 +40,7 @@ package FOOTpackage is
 
   -- - - - - -  ** Calibration ** - - - - -
   constant cADC_CHANNELS          : natural := cFE_CHANNELS*2; 
-  constant cHEAP_SIZE             : natural := 32;
+  constant cHEAP_SIZE             : natural := 4;
   constant cACC_WIDTH             : natural := 32; -- Accumolators for pedestal and sigma bit width
   constant cSQRT_WIDTH            : natural := 32; -- Modified for 32 bit version
   constant cSMA_CALC_MODE         : natural := 2;
@@ -335,166 +335,79 @@ package FOOTpackage is
 
   component Heap is
       generic (
-          pHEAP_SIZE      : natural := cHEAP_SIZE;
-          pADDR_WIDTH     : natural := ceil_log2(cFE_CHANNELS);
-          pDATA_WIDTH     : natural := cADC_DATA_WIDTH;
-          pIS_MAX_HEAP    : boolean := true
+          pHEAP_SIZE    : integer := 8;  -- Numero elementi massimi heap
+          pDATA_WIDTH   : integer := 8;   -- Larghezza dei dati (8 bit)
+          pIS_MAX_HEAP  : boolean := true
       );
       port (
-          iCLK : in std_logic;
-          iRST : in std_logic;
-
-          -- Command interface -
-          -- iCMD_op = "00" insert pointer
-          -- iCMD_op = "01" replace root pointer
-          -- iCMD_op = "10" clear heap pointers
-          iCMD_en   : in std_logic;
-          iCMD_op   : in std_logic_vector(1 downto 0);
-          iCMD_addr : in std_logic_vector(pADDR_WIDTH-1 downto 0);
-          iCMD_data : in std_logic_vector(pDATA_WIDTH-1 downto 0);
-
-          oRAM_rd_en_a   : out std_logic;
-          oRAM_rd_addr_a : out std_logic_vector(pADDR_WIDTH-1 downto 0);
-          iRAM_rd_data_a : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
-
-          oRAM_rd_en_b   : out std_logic;
-          oRAM_rd_addr_b : out std_logic_vector(pADDR_WIDTH-1 downto 0);
-          iRAM_rd_data_b : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
-
-          oBusy      : out std_logic;
-          oDone      : out std_logic;
-          oCount     : out integer range 0 to pHEAP_SIZE;
-          oRoot_addr : out std_logic_vector(pADDR_WIDTH-1 downto 0);
-          oRoot_data : out std_logic_vector(pDATA_WIDTH-1 downto 0);
-          oEmpty     : out std_logic;
-          oFull      : out std_logic
+        iCLK      : in  std_logic;
+        iRST      : in  std_logic;
+        iINS_en   : in  std_logic;
+        iINS_data : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
+        iEXT_en   : in  std_logic;
+        iREP_en   : in  std_logic;
+        iREP_data : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
+        --oDATA     : out std_logic_vector(pDATA_WIDTH-1 downto 0);
+        --oVALID    : out std_logic;
+        oBusy     : out std_logic;
+        oCount    : out integer range 0 to pHEAP_SIZE;
+        oRoot     : out std_logic_vector(pDATA_WIDTH-1 downto 0)
       );
-  end component Heap;
+  end component heap;
 
   component StreamingMedian is
       generic (
-          pHEAP_SIZE  : natural := cHEAP_SIZE; -- Each heap size. Total SMA window = 2*pHEAP_SIZE.
-          pADDR_WIDTH : natural := ceil_log2(cFE_CHANNELS);
-          pDATA_WIDTH : natural := cADC_DATA_WIDTH;
-          pCALC_MODE  : natural := 0  -- 0 average roots, 1 MinRoot, >1 MaxRoot
+          pHEAP_SIZE  : integer := 8; -- VA / 2. 128 strip = 64 heap size
+          pCALC_MODE  : natural := 0; 
+          pDATA_WIDTH : integer := 16
       );
       port (
-          iCLK : in std_logic;
-          iRST : in std_logic;
-
-          iINS_en   : in std_logic;
-          iINS_data : in std_logic_vector(pDATA_WIDTH-1 downto 0);
-          iINS_addr : in std_logic_vector(pADDR_WIDTH-1 downto 0);
-          iFlush    : in std_logic;
-          oReady    : out std_logic;
-
-          oRAM_req   : out std_logic;
-          iRAM_grant : in  std_logic;
-
-          oRAM_rd_en_a   : out std_logic;
-          oRAM_rd_addr_a : out std_logic_vector(pADDR_WIDTH-1 downto 0);
-          iRAM_rd_data_a : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
-
-          oRAM_rd_en_b   : out std_logic;
-          oRAM_rd_addr_b : out std_logic_vector(pADDR_WIDTH-1 downto 0);
-          iRAM_rd_data_b : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
+          iCLK      : in  std_logic;
+          iRST      : in  std_logic;
+          iINS_en   : in  std_logic;
+          iINS_data : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
           oMedian   : out std_logic_vector(pDATA_WIDTH-1 downto 0);
           oValid    : out std_logic;
           oBusy_SMA : out std_logic
       );
   end component StreamingMedian;
 
-  component SMA_wrap is
-    generic (
-      pHEAP_SIZE   : natural := cHEAP_SIZE;
-      pCALC_MODE   : natural := cSMA_CALC_MODE;
-      pADC_NUM     : natural := cTOTAL_ADCS;
-      pDATA_WIDTH  : natural := cADC_DATA_WIDTH;
-      pRAM_DEPTH   : natural := 2*cFE_CHANNELS;
-      pADDR_WIDTH  : natural := ceil_log2(cFE_CHANNELS);
-      pFORCE_MLAB  : natural := 1
-    );
-    port (
-      iCLK : in std_logic;
-      iRST : in std_logic;
+  component StreamingMedianOfMedian is
+      generic (
+          pHEAP_SIZE  : integer := cHEAP_SIZE;
+          pCALC_MODE  : natural := cSMA_CALC_MODE; -- In caso di numero pari di elementi. 0: Media tra le root, 1: MinRoot, >1:MaxRoot
+          pDATA_WIDTH : integer := cADC_DATA_WIDTH
+      );
+      port (
+          iCLK      : in  std_logic;
+          iRST      : in  std_logic;
+          iINS_en   : in  std_logic;
+          iINS_data : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
+          oMedian   : out std_logic_vector(pDATA_WIDTH-1 downto 0);
+          iFlush    : in  std_logic;
+          oValid    : out std_logic;
+          oBusy_SMA : out std_logic
+      );
+  end component StreamingMedianOfMedian;
 
-      iCN_RST      : in  std_logic;
-      iCN_WR_en    : in  std_logic;
-      iCN_WR_bank  : in  std_logic;
-      iCN_WR_addr  : in  std_logic_vector(pADDR_WIDTH-1 downto 0);
-      iCN_WR_data  : in  t_FOOT_lef_data;
-      iCN_INS_en   : in  std_logic_vector(pADC_NUM-1 downto 0);
-      iCN_Flush    : in  std_logic_vector(pADC_NUM-1 downto 0);
-      oCN_Median   : out t_FOOT_lef_data;
-      oCN_Valid    : out std_logic_vector(pADC_NUM-1 downto 0);
-      oCN_Ready    : out std_logic;
-
-      iCN_RD_req   : in  std_logic;
-      iCN_RD_en    : in  std_logic;
-      iCN_RD_bank  : in  std_logic;
-      iCN_RD_addr  : in  std_logic_vector(pADDR_WIDTH-1 downto 0);
-      oCN_RD_grant : out std_logic;
-      oCN_RD_data  : out t_FOOT_lef_data;
-      oCN_RD_valid : out std_logic;
-
-      iCAL_priority : in  std_logic;
-      iCAL_RST      : in  std_logic;
-      iCAL_WR_en    : in  std_logic;
-      iCAL_WR_addr  : in  std_logic_vector(pADDR_WIDTH-1 downto 0);
-      iCAL_WR_data  : in  t_FOOT_lef_data;
-      iCAL_INS_en   : in  std_logic_vector(pADC_NUM-1 downto 0);
-      iCAL_Flush    : in  std_logic_vector(pADC_NUM-1 downto 0);
-      oCAL_Median   : out t_FOOT_lef_data;
-      oCAL_Valid    : out std_logic_vector(pADC_NUM-1 downto 0);
-      oCAL_Ready    : out std_logic;
-
-      oBusy_SMA     : out std_logic_vector(pADC_NUM-1 downto 0)
-    );
-  end component SMA_wrap;
-
-  component CN_RAM_Arbiter is
-    generic(
-      pADDR_WIDTH : natural;
-      pDATA_WIDTH : natural
-    );
-    port(
-      iWR_req   : in  std_logic;
-      oWR_grant : out std_logic;
-      iWR_en    : in  std_logic;
-      iWR_bank  : in  std_logic;
-      iWR_addr  : in  std_logic_vector(pADDR_WIDTH-1 downto 0);
-      iWR_data  : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
-
-      iSMA_req       : in  std_logic;
-      oSMA_grant     : out std_logic;
-      iSMA_bank      : in  std_logic;
-      iSMA_rd_en_a   : in  std_logic;
-      iSMA_rd_addr_a : in  std_logic_vector(pADDR_WIDTH-1 downto 0);
-      oSMA_rd_data_a : out std_logic_vector(pDATA_WIDTH-1 downto 0);
-      iSMA_rd_en_b   : in  std_logic;
-      iSMA_rd_addr_b : in  std_logic_vector(pADDR_WIDTH-1 downto 0);
-      oSMA_rd_data_b : out std_logic_vector(pDATA_WIDTH-1 downto 0);
-
-      iRD_req    : in  std_logic;
-      oRD_grant  : out std_logic;
-      iRD_en_a   : in  std_logic;
-      iRD_bank   : in  std_logic;
-      iRD_addr_a : in  std_logic_vector(pADDR_WIDTH-1 downto 0);
-      oRD_data_a : out std_logic_vector(pDATA_WIDTH-1 downto 0);
-
-      oRAM_addr_a : out std_logic_vector(pADDR_WIDTH downto 0);
-      oRAM_data_a : out std_logic_vector(pDATA_WIDTH-1 downto 0);
-      oRAM_we_a   : out std_logic;
-      oRAM_re_a   : out std_logic;
-      iRAM_data_a : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
-
-      oRAM_addr_b : out std_logic_vector(pADDR_WIDTH downto 0);
-      oRAM_data_b : out std_logic_vector(pDATA_WIDTH-1 downto 0);
-      oRAM_we_b   : out std_logic;
-      oRAM_re_b   : out std_logic;
-      iRAM_data_b : in  std_logic_vector(pDATA_WIDTH-1 downto 0)
-    );
-  end component;
+  component StreamingMedianOfMedianWrap is
+      generic (
+          pHEAP_SIZE  : integer := cHEAP_SIZE;
+          pCALC_MODE  : natural := cSMA_CALC_MODE;
+          pADC_NUM    : natural := cTOTAL_ADCS;
+          pDATA_WIDTH : integer := cADC_DATA_WIDTH
+      );
+      port (
+          iCLK      : in  std_logic;
+          iRST      : in  std_logic;
+          iINS_en   : in  std_logic_vector(pADC_NUM-1 downto 0);
+          iINS_data : in  t_FOOT_lef_data;
+          oMedian   : out t_FOOT_lef_data;
+          iFlush    : in  std_logic_vector(pADC_NUM-1 downto 0);
+          oValid    : out std_logic_vector(pADC_NUM-1 downto 0);
+          oBusy_SMA : out std_logic_vector(pADC_NUM-1 downto 0)
+      );
+  end component StreamingMedianOfMedianWrap;
 
   component FOOT_FIFO is
     generic (             
@@ -601,9 +514,8 @@ package FOOTpackage is
 
   component CNSubtraction is
     generic (             
-      pADC_STRIPS        : natural := cADC_CHANNELS;   -- number of microstrips per ADC
-      pADC_NUM           : natural := cTOTAL_ADCS;
-      pCN_RAM_ADDR_WIDTH : natural := ceil_log2(cFE_CHANNELS)
+      pADC_STRIPS     : natural := cADC_CHANNELS;   -- number of microstrips per ADC
+      pADC_NUM        : natural := cTOTAL_ADCS
     );
     port (
       -- global control & clock
@@ -615,20 +527,10 @@ package FOOTpackage is
       iWORD               : in t_FOOT_lef_data; -- Word that goes into SMA
       iPUTD               : in std_logic; -- The word is valid.
       
-      -- CN RAM writer interface
-      oCN_RAM_WR_en       : out std_logic;
-      oCN_RAM_WR_bank     : out std_logic;
-      oCN_RAM_WR_addr     : out std_logic_vector(pCN_RAM_ADDR_WIDTH-1 downto 0);
-      oCN_RAM_WR_data     : out t_FOOT_lef_data;
-
-      -- CN RAM reader interface
-      oCN_RAM_RD_req      : out std_logic;
-      oCN_RAM_RD_en       : out std_logic;
-      oCN_RAM_RD_bank     : out std_logic;
-      oCN_RAM_RD_addr     : out std_logic_vector(pCN_RAM_ADDR_WIDTH-1 downto 0);
-      iCN_RAM_RD_grant    : in  std_logic;
-      iCN_RAM_RD_data     : in  t_FOOT_lef_data;
-      iCN_RAM_RD_valid    : in  std_logic;
+      -- FIFO INTERFACE ** FROM NOT YET IMPLEMENTED FIFO WRAPPER **
+      oRE                 : out std_logic; -- Extract from FIFO for sub on the next cycle oData is valid.
+      iDATA               : in t_FOOT_lef_data;
+      iEMPTY              : in std_logic;
 
       -- CALIB RAM INTERFACE
       oRHT_ADDR           : out std_logic_vector(6 downto 0);
@@ -792,9 +694,6 @@ package FOOTpackage is
       oSMA_RST                : out std_logic;
       oSMA_INS_en             : out std_logic_vector(pADC_NUM-1 downto 0);
       oSMA_INS_data           : out t_FOOT_lef_data;
-      oSMA_WR_en              : out std_logic;
-      oSMA_WR_addr            : out std_logic_vector(ceil_log2(cFE_CHANNELS)-1 downto 0);
-      iSMA_Ready              : in  std_logic;
       iSMA_Median             : in  t_FOOT_lef_data;
       oSMA_Flush              : out std_logic_vector(pADC_NUM-1 downto 0);
       iSMA_Valid              : in  std_logic_vector(pADC_NUM-1 downto 0)

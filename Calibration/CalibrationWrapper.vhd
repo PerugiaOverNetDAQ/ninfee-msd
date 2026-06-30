@@ -2,7 +2,7 @@
 --!@brief Core of calibration, MAIN FSM that pilots the calibration.
 --!@author Luca Russo, luca.russo@cern.ch, luca.russo912@gmail.com
 --!@date 17/05/2026
---!@version 1.2.0
+--!@version 1.1.1
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
@@ -67,9 +67,6 @@ entity CalibrationWrapper is
     oSMA_RST                : out std_logic;
     oSMA_INS_en             : out std_logic_vector(pADC_NUM-1 downto 0);
     oSMA_INS_data           : out t_FOOT_lef_data;
-    oSMA_WR_en              : out std_logic;
-    oSMA_WR_addr            : out std_logic_vector(ceil_log2(cFE_CHANNELS)-1 downto 0);
-    iSMA_Ready              : in  std_logic;
     iSMA_Median             : in  t_FOOT_lef_data;
     oSMA_Flush              : out std_logic_vector(pADC_NUM-1 downto 0);
     iSMA_Valid              : in  std_logic_vector(pADC_NUM-1 downto 0)
@@ -486,8 +483,6 @@ begin
       oSMA_RST         <= '0';
       oSMA_INS_en      <= (others => '0');
       oSMA_INS_data    <= (others => (others => '0'));
-      oSMA_WR_en       <= '0';
-      oSMA_WR_addr     <= (others => '0');
       oSMA_Flush       <= (others => '0');
 
       sSMA_Valid_rst   <= '1';
@@ -514,7 +509,6 @@ begin
       sFlgWriteWE     <= '0';
       oER_WE          <= '0';
       oSMA_INS_en     <= (others => '0');
-      oSMA_WR_en      <= '0';
       oSMA_RST        <= '0';
       oSMA_Flush      <= (others => '0');
       sSMA_Valid_rst  <= '0';
@@ -706,11 +700,9 @@ begin
           sCalibState      <= RSF_COMP;
 
         when RSF_COMP =>
-          if (sSMA_InsertOnce = '0') and (iSMA_Ready = '1') then
+          if sSMA_InsertOnce = '0' then
             oSMA_INS_data   <= sSigRawOut.DATA;
             oSMA_INS_en     <= (others => '1');
-            oSMA_WR_en      <= '1';
-            oSMA_WR_addr    <= std_logic_vector(to_unsigned(sFlag_cnt, oSMA_WR_addr'length));
             sSMA_InsertOnce <= '1';
           end if;
 

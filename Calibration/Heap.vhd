@@ -1,100 +1,61 @@
 --!@file Heap.vhd
---!@brief Heap of RAM pointers. The heap array stores addresses, not data.
---!@details The data values remain in the external shared RAM. During heapify the
---!         module reads the RAM addresses stored in the heap and compares the
---!         returned values as signed numbers. The root address and root data are
---!         cached and exposed to SMA.
---!@author Luca Russo
---!@date 05/06/2026
---!@version 1.1
+--!@brief Parametric binary heap implementation. The same entity can work as MaxHeap or MinHeap.
+--!@author Luca Russo, luca.russo@cern.ch, luca.russo912@gmail.com
+--!@date 04/06/2026
+--!@version 1.7.0 - unified MaxHeap/MinHeap through pIS_MAX_HEAP -
 
-library ieee;
-use ieee.std_logic_1164.all;
-use ieee.numeric_std.all;
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
 
 use work.FOOTpackage.all;
-use work.basic_package.all;
 
 entity Heap is
     generic (
-        pHEAP_SIZE   : natural := cHEAP_SIZE;
-        pADDR_WIDTH  : natural := ceil_log2(cFE_CHANNELS);
-        pDATA_WIDTH  : natural := cADC_DATA_WIDTH;
+        pHEAP_SIZE   : integer := 8;
+        pDATA_WIDTH  : integer := 8;
         pIS_MAX_HEAP : boolean := true
     );
     port (
-        iCLK : in std_logic;
-        iRST : in std_logic;
-
-        -- Command interface ---------------------------------------------------
-        -- iCMD_op = "00" insert pointer
-        -- iCMD_op = "01" replace root pointer
-        -- iCMD_op = "10" clear heap pointers
-        iCMD_en   : in std_logic;
-        iCMD_op   : in std_logic_vector(1 downto 0);
-        iCMD_addr : in std_logic_vector(pADDR_WIDTH-1 downto 0);
-        iCMD_data : in std_logic_vector(pDATA_WIDTH-1 downto 0);
-
-        -- External RAM read ports --------------------------------------------
-        oRAM_rd_en_a   : out std_logic;
-        oRAM_rd_addr_a : out std_logic_vector(pADDR_WIDTH-1 downto 0);
-        iRAM_rd_data_a : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
-
-        oRAM_rd_en_b   : out std_logic;
-        oRAM_rd_addr_b : out std_logic_vector(pADDR_WIDTH-1 downto 0);
-        iRAM_rd_data_b : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
-
-        -- Status --------------------------------------------------------------
-        oBusy      : out std_logic;
-        oDone      : out std_logic;
-        oCount     : out integer range 0 to pHEAP_SIZE;
-        oRoot_addr : out std_logic_vector(pADDR_WIDTH-1 downto 0);
-        oRoot_data : out std_logic_vector(pDATA_WIDTH-1 downto 0);
-        oEmpty     : out std_logic;
-        oFull      : out std_logic
+        iCLK      : in  std_logic;
+        iRST      : in  std_logic;
+        iINS_en   : in  std_logic;
+        iINS_data : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
+        iEXT_en   : in  std_logic;
+        iREP_en   : in  std_logic;
+        iREP_data : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
+        oBusy     : out std_logic;
+        oCount    : out integer range 0 to pHEAP_SIZE;
+        oRoot     : out std_logic_vector(pDATA_WIDTH-1 downto 0)
     );
-end entity Heap;
+end Heap;
 
 architecture Behavioral of Heap is
 
-    constant cCMD_INSERT       : std_logic_vector(1 downto 0) := "00";
-    constant cCMD_REPLACE_ROOT : std_logic_vector(1 downto 0) := "01";
-    constant cCMD_CLEAR        : std_logic_vector(1 downto 0) := "10";
+    -- Sottotipi per rendere sicuri gli indici usati per accedere all'array.
+    subtype idx_t is integer range 0 to pHEAP_SIZE-1;  -- indici validi dell'array
+    subtype cnt_t is integer range 0 to pHEAP_SIZE;    -- il contatore può arrivare alla capienza
 
-    type tState is (
-        IDLE,
-        UP_READ_PARENT,
-        UP_COMPARE_PARENT,
-        DOWN_READ_CHILDREN,
-        DOWN_COMPARE_CHILDREN
-    );
+    type heap_array is array (0 to pHEAP_SIZE-1) of signed(pDATA_WIDTH-1 downto 0);
+    signal heap       : heap_array := (others => (others => '0'));
+    signal heap_count : cnt_t := 0;
 
-    type tHeapArray is array (0 to pHEAP_SIZE-1) of std_logic_vector(pADDR_WIDTH-1 downto 0);
+    type state_type is (IDLE, HEAPIFY_UP, HEAPIFY_DOWN);
+    signal state : state_type;
 
-    signal sState : tState := IDLE;
-    signal sHeap  : tHeapArray := (others => (others => '0'));
+    attribute syn_encoding : string;
+    attribute syn_encoding of state : signal is "onehot";
 
-    signal sCount : integer range 0 to pHEAP_SIZE := 0;
+    signal current_index : idx_t := 0;
+    signal root_element  : std_logic_vector(pDATA_WIDTH-1 downto 0) := (others => '0');
 
-    signal sMoveAddr : std_logic_vector(pADDR_WIDTH-1 downto 0) := (others => '0');
-    signal sMoveData : std_logic_vector(pDATA_WIDTH-1 downto 0) := (others => '0');
-
-    signal sIdx       : integer range 0 to pHEAP_SIZE := 0;
-    signal sParentIdx : integer range 0 to pHEAP_SIZE := 0;
-    signal sLeftIdx   : integer range 0 to pHEAP_SIZE := 0;
-    signal sRightIdx  : integer range 0 to pHEAP_SIZE := 0;
-
-    signal sHaveLeft  : std_logic := '0';
-    signal sHaveRight : std_logic := '0';
-
-    signal sRootAddr : std_logic_vector(pADDR_WIDTH-1 downto 0) := (others => '0');
-    signal sRootData : std_logic_vector(pDATA_WIDTH-1 downto 0) := (others => '0');
-
-    signal sDone : std_logic := '0';
-
-    function f_has_priority(a : signed; b : signed) return boolean is
+    function HasPriority(
+        a      : signed;
+        b      : signed;
+        is_max : boolean
+    ) return boolean is
     begin
-        if pIS_MAX_HEAP then
+        if is_max then
             return a > b;
         else
             return a < b;
@@ -102,216 +63,136 @@ architecture Behavioral of Heap is
     end function;
 
 begin
+    oCount <= heap_count;
+    oRoot  <= root_element;
 
-    oCount     <= sCount;
-    oRoot_addr <= sRootAddr;
-    oRoot_data <= sRootData;
-    oDone      <= sDone;
-    oBusy      <= '1' when sState /= IDLE else '0';
-    oEmpty     <= '1' when sCount = 0 else '0';
-    oFull      <= '1' when sCount = pHEAP_SIZE else '0';
-
-    -- Read addresses are driven only in the states that issue RAM reads.
-    process(sState, sParentIdx, sLeftIdx, sRightIdx, sHaveLeft, sHaveRight, sHeap)
-    begin
-        oRAM_rd_en_a   <= '0';
-        oRAM_rd_addr_a <= (others => '0');
-        oRAM_rd_en_b   <= '0';
-        oRAM_rd_addr_b <= (others => '0');
-
-        if sState = UP_READ_PARENT then
-            oRAM_rd_en_a   <= '1';
-            oRAM_rd_addr_a <= sHeap(sParentIdx);
-
-        elsif sState = DOWN_READ_CHILDREN then
-            if sHaveLeft = '1' then
-                oRAM_rd_en_a   <= '1';
-                oRAM_rd_addr_a <= sHeap(sLeftIdx);
-            end if;
-
-            if sHaveRight = '1' then
-                oRAM_rd_en_b   <= '1';
-                oRAM_rd_addr_b <= sHeap(sRightIdx);
-            end if;
-        end if;
-    end process;
+    oBusy  <= '1' when state /= IDLE else '0';
 
     process(iCLK, iRST)
-        variable vBestIdx  : integer range 0 to pHEAP_SIZE;
-        variable vBestAddr : std_logic_vector(pADDR_WIDTH-1 downto 0);
-        variable vBestData : std_logic_vector(pDATA_WIDTH-1 downto 0);
-        variable vLeft     : integer; --@suppress
-        variable vRight    : integer; --@suppress
+        -- Variabili grezze per calcolare i figli. Restano integer perché possono uscire temporaneamente dal range dell'array.
+        variable left_i, right_i : integer; --@suppress
+
+        -- Variabili di indice ristretto, usate solo dopo aver verificato che l'indice sia valido.
+        variable parent_idx : idx_t;
+        variable left_idx   : idx_t;
+        variable right_idx  : idx_t;
+        variable selected   : idx_t;
+
+        -- Indici temporanei sicuri per insert/extract.
+        variable ins_idx  : idx_t;
+        variable last_idx : idx_t;
+
+        variable temp : signed(pDATA_WIDTH-1 downto 0);
     begin
         if iRST = '1' then
-            sState     <= IDLE;
-            sHeap      <= (others => (others => '0'));
-            sCount     <= 0;
-            sMoveAddr  <= (others => '0');
-            sMoveData  <= (others => '0');
-            sIdx       <= 0;
-            sParentIdx <= 0;
-            sLeftIdx   <= 0;
-            sRightIdx  <= 0;
-            sHaveLeft  <= '0';
-            sHaveRight <= '0';
-            sRootAddr  <= (others => '0');
-            sRootData  <= (others => '0');
-            sDone      <= '0';
+            heap          <= (others => (others => '0'));
+            heap_count    <= 0;
+            state         <= IDLE;
+            current_index <= 0;
+            root_element  <= (others => '0');
 
         elsif rising_edge(iCLK) then
-            sDone <= '0';
-
-            case sState is
+            case state is
                 when IDLE =>
-                    if iCMD_en = '1' then
-                        if iCMD_op = cCMD_CLEAR then
-                            sHeap      <= (others => (others => '0'));
-                            sCount     <= 0;
-                            sRootAddr  <= (others => '0');
-                            sRootData  <= (others => '0');
-                            sDone      <= '1';
+                    -- Priorità dei comandi mantenuta identica ai vecchi MinHeap/MaxHeap:
+                    -- insert, poi extract, poi replace_root.
+                    if (iINS_en = '1') and (heap_count < pHEAP_SIZE) then
+                        ins_idx := heap_count;                 -- 0..pHEAP_SIZE-1, quindi sicuro
+                        heap(ins_idx) <= signed(iINS_data);     -- Il nuovo valore entra in fondo all'heap
+                        current_index <= ins_idx;              -- Da qui parte la risalita verso la root
+                        heap_count <= heap_count + 1;
+                        state <= HEAPIFY_UP;
 
-                        elsif iCMD_op = cCMD_INSERT then
-                            if sCount = pHEAP_SIZE then
-                                -- SMA should avoid this case. The command is ignored safely.
-                                sDone <= '1';
-
-                            elsif sCount = 0 then
-                                sHeap(0)   <= iCMD_addr;
-                                sCount     <= 1;
-                                sRootAddr  <= iCMD_addr;
-                                sRootData  <= iCMD_data;
-                                sDone      <= '1';
-
-                            else
-                                sMoveAddr  <= iCMD_addr;
-                                sMoveData  <= iCMD_data;
-                                sIdx       <= sCount;
-                                sParentIdx <= (sCount - 1) / 2;
-                                sState     <= UP_READ_PARENT;
-                            end if;
-
-                        elsif iCMD_op = cCMD_REPLACE_ROOT then
-                            if sCount = 0 then
-                                -- Empty replace behaves like insert.
-                                sHeap(0)   <= iCMD_addr;
-                                sCount     <= 1;
-                                sRootAddr  <= iCMD_addr;
-                                sRootData  <= iCMD_data;
-                                sDone      <= '1';
-
-                            elsif sCount = 1 then
-                                sHeap(0)   <= iCMD_addr;
-                                sRootAddr  <= iCMD_addr;
-                                sRootData  <= iCMD_data;
-                                sDone      <= '1';
-
-                            else
-                                sMoveAddr  <= iCMD_addr;
-                                sMoveData  <= iCMD_data;
-                                sIdx       <= 0;
-                                sLeftIdx   <= 1;
-                                sRightIdx  <= 2;
-                                sHaveLeft  <= '1';
-                                if 2 < sCount then
-                                    sHaveRight <= '1';
-                                else
-                                    sHaveRight <= '0';
-                                end if;
-                                sState <= DOWN_READ_CHILDREN;
-                            end if;
-                        end if;
-                    end if;
-
-                when UP_READ_PARENT =>
-                    -- Address has been driven for one cycle. Data will be checked
-                    -- at the next rising edge.
-                    sState <= UP_COMPARE_PARENT;
-
-                when UP_COMPARE_PARENT =>
-                    if f_has_priority(signed(sMoveData), signed(iRAM_rd_data_a)) then
-                        -- Parent goes down. Moving item continues upward.
-                        sHeap(sIdx) <= sHeap(sParentIdx);
-
-                        if sParentIdx = 0 then
-                            sHeap(0)   <= sMoveAddr;
-                            sRootAddr  <= sMoveAddr;
-                            sRootData  <= sMoveData;
-                            sCount     <= sCount + 1;
-                            sDone      <= '1';
-                            sState     <= IDLE;
+                    elsif iEXT_en = '1' then
+                        if heap_count > 0 then
+                            -- La root viene rimossa logicamente: l'ultimo elemento prende il suo posto
+                            -- e poi scende fino a ripristinare la proprietà dell'heap.
+                            last_idx := heap_count - 1;
+                            heap(0) <= heap(last_idx);
+                            heap_count <= heap_count - 1;
+                            current_index <= 0;
+                            state <= HEAPIFY_DOWN;
                         else
-                            sIdx       <= sParentIdx;
-                            sParentIdx <= (sParentIdx - 1) / 2;
-                            sState     <= UP_READ_PARENT;
-                        end if;
-                    else
-                        -- Correct position found.
-                        sHeap(sIdx) <= sMoveAddr;
-                        sCount      <= sCount + 1;
-                        sDone       <= '1';
-                        sState      <= IDLE;
-                    end if;
-
-                when DOWN_READ_CHILDREN =>
-                    sState <= DOWN_COMPARE_CHILDREN;
-
-                when DOWN_COMPARE_CHILDREN =>
-                    -- Select child with higher priority.
-                    vBestIdx  := sLeftIdx;
-                    vBestAddr := sHeap(sLeftIdx);
-                    vBestData := iRAM_rd_data_a;
-
-                    if sHaveRight = '1' then
-                        if f_has_priority(signed(iRAM_rd_data_b), signed(iRAM_rd_data_a)) then
-                            vBestIdx  := sRightIdx;
-                            vBestAddr := sHeap(sRightIdx);
-                            vBestData := iRAM_rd_data_b;
-                        end if;
-                    end if;
-
-                    if f_has_priority(signed(vBestData), signed(sMoveData)) then
-                        -- Best child goes up.
-                        sHeap(sIdx) <= vBestAddr;
-
-                        if sIdx = 0 then
-                            sRootAddr <= vBestAddr;
-                            sRootData <= vBestData;
+                            state <= IDLE;
                         end if;
 
-                        vLeft  := (2 * vBestIdx) + 1;
-                        vRight := (2 * vBestIdx) + 2;
-
-                        if vLeft >= sCount then
-                            -- No more children: place moving pointer here.
-                            sHeap(vBestIdx) <= sMoveAddr;
-                            sDone           <= '1';
-                            sState          <= IDLE;
+                    elsif iREP_en = '1' then
+                        if heap_count > 0 then
+                            -- replace_root evita extract + insert sullo stesso heap.
+                            -- Si cambia solo la root e poi si esegue heapify_down.
+                            heap(0) <= signed(iREP_data);
+                            current_index <= 0;
+                            state <= HEAPIFY_DOWN;
                         else
-                            sIdx      <= vBestIdx;
-                            sLeftIdx  <= vLeft;
-                            sRightIdx <= vRight;
-                            sHaveLeft <= '1';
-                            if vRight < sCount then
-                                sHaveRight <= '1';
-                            else
-                                sHaveRight <= '0';
-                            end if;
-                            sState <= DOWN_READ_CHILDREN;
+                            state <= IDLE;
                         end if;
+
                     else
-                        -- Moving pointer belongs here.
-                        sHeap(sIdx) <= sMoveAddr;
-                        if sIdx = 0 then
-                            sRootAddr <= sMoveAddr;
-                            sRootData <= sMoveData;
-                        end if;
-                        sDone  <= '1';
-                        sState <= IDLE;
+                        state <= IDLE;
                     end if;
+
+                when HEAPIFY_UP =>
+                    if current_index = 0 then
+                        state <= IDLE;
+                        root_element <= std_logic_vector(heap(0));
+                    else
+                        parent_idx := (current_index - 1) / 2;
+
+                        -- Nel MaxHeap sale il figlio maggiore del padre.
+                        -- Nel MinHeap sale il figlio minore del padre.
+                        if HasPriority(heap(current_index), heap(parent_idx), pIS_MAX_HEAP) then
+                            temp := heap(parent_idx);
+                            heap(parent_idx) <= heap(current_index);
+                            heap(current_index) <= temp;
+                            current_index <= parent_idx;
+                            state <= HEAPIFY_UP;
+                        else
+                            state <= IDLE;
+                            root_element <= std_logic_vector(heap(0));
+                        end if;
+                    end if;
+
+                when HEAPIFY_DOWN =>
+                    left_i  := 2 * current_index + 1;
+                    right_i := 2 * current_index + 2;
+                    selected := current_index;
+
+                    -- Se esiste il figlio sinistro, lo confronto con il nodo corrente.
+                    if left_i < heap_count then
+                        left_idx := left_i;
+                        if HasPriority(heap(left_idx), heap(selected), pIS_MAX_HEAP) then
+                            selected := left_idx;
+                        end if;
+                    end if;
+
+                    -- Se esiste anche il figlio destro, lo confronto con il migliore trovato finora.
+                    if right_i < heap_count then
+                        right_idx := right_i;
+                        if HasPriority(heap(right_idx), heap(selected), pIS_MAX_HEAP) then
+                            selected := right_idx;
+                        end if;
+                    end if;
+
+                    -- Se uno dei figli ha priorità maggiore della posizione corrente, faccio swap e continuo a scendere.
+                    if selected /= current_index then
+                        temp := heap(current_index);
+                        heap(current_index) <= heap(selected);
+                        heap(selected) <= temp;
+                        current_index <= selected;
+                        state <= HEAPIFY_DOWN;
+                    else
+                        state <= IDLE;
+                        if heap_count > 0 then
+                            root_element <= std_logic_vector(heap(0));
+                        else
+                            root_element <= (others => '0');
+                        end if;
+                    end if;
+
+                when others => --@suppress
+                    state <= IDLE;
             end case;
         end if;
     end process;
 
-end architecture Behavioral;
+end Behavioral;
