@@ -357,10 +357,18 @@ begin
           --No more FEs to readout
           sNextFeState <= wait4en(sCntIn.slwEn, SYNCH_END, COMPLETE);
         end if;
-
-      --FIXME: copy the ASTRA one
+      
+      --Done; Reset if in test mode, or go back to IDLE otherwise
       when COMPLETE =>
-        sNextFeState <= IDLE;
+        if (iCNT_Test = '1') then
+          if (sCntIn.en = '1') then
+            sNextFeState <= COMPLETE;
+          else
+            sNextFeState <= RESET;
+          end if;
+        else --iCNT_TEST = '0' or others
+          sNextFeState <= IDLE;
+        end if;
 
       --State not foreseen
       when others =>
