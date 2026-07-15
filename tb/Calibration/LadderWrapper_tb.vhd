@@ -56,6 +56,7 @@ architecture tb of LadderWrapper_tb is
     signal iWord              : t_FOOT_lef_data := (others => (others => '0'));
     signal iPutd              : std_logic := '0';
     signal iTrig              : std_logic := '0';
+    signal iFull              : std_logic := '0';
     signal iCalibrationEnable : std_logic := '0';
     signal iHostControl       : std_logic_vector(7 downto 0) := (others => '0');
     signal iEventEnable       : std_logic := '1'; -- enable EVENT path--@suppress
@@ -71,28 +72,38 @@ architecture tb of LadderWrapper_tb is
     signal oER_W_ADDR : std_logic_vector(TB_WADDR_WIDTH-1 downto 0);
     signal oER_DATA   : std_logic_vector(TB_DATA_WIDTH-1 downto 0);
 
-    -- Calibration RAM unload outputs
-    signal oWADDR    : std_logic_vector(TB_WADDR_WIDTH-1 downto 0);
-
-    signal oWELTH    : std_logic;
-    signal oLTH_DATA : std_logic_vector(TB_DATA_WIDTH-1 downto 0);
-
-    signal oWEHTH    : std_logic;
-    signal oHTH_DATA : std_logic_vector(TB_DATA_WIDTH-1 downto 0);
-
-    signal oWERHT    : std_logic;
-    signal oRHT_DATA : std_logic_vector(TB_DATA_WIDTH-1 downto 0);
-
-    signal oWEPED    : std_logic;
-    signal oREPED    : std_logic;--@suppress
-    signal oPED_DATA : std_logic_vector(TB_DATA_WIDTH-1 downto 0);
-
-    signal oWEFLG    : std_logic;
-    signal oREFLG    : std_logic;--@suppress
-    signal oFLG_DATA : std_logic_vector(TB_DATA_WIDTH-1 downto 0);
-
-    signal oRESIG    : std_logic;--@suppress
-    signal oSIG_DATA : std_logic_vector(TB_DATA_WIDTH-1 downto 0);--@suppress
+    -- Direct calibration RAM interface
+    signal sPedIn_Cal    : CalibCompIN := (
+        DATA  => (others => (others => '0')),
+        WADDR => (others => '0'),
+        RADDR => (others => '0'),
+        WE    => '0'
+    );
+    signal sSigRawIn_Cal : CalibCompIN := (
+        DATA  => (others => (others => '0')),
+        WADDR => (others => '0'),
+        RADDR => (others => '0'),
+        WE    => '0'
+    );
+    signal sSigIn_Cal    : CalibCompIN := (
+        DATA  => (others => (others => '0')),
+        WADDR => (others => '0'),
+        RADDR => (others => '0'),
+        WE    => '0'
+    );
+    signal sFlgIn_Cal    : CalibCompIN := (
+        DATA  => (others => (others => '0')),
+        WADDR => (others => '0'),
+        RADDR => (others => '0'),
+        WE    => '0'
+    );
+    signal sPedOut_Cal    : CalibCompOUT;--@suppress
+    signal sSigRawOut_Cal : CalibCompOUT;--@suppress
+    signal sSigOut_Cal    : CalibCompOUT;--@suppress
+    signal sFlgOut_Cal    : CalibCompOUT;--@suppress
+    signal sLthOut_Cal    : CalibCompOUT;--@suppress
+    signal sHthOut_Cal    : CalibCompOUT;--@suppress
+    signal sRhtOut_Cal    : CalibCompOUT;--@suppress
 
     -- Phase marker for logs: 'C' (calib) / 'E' (event)
     signal sPhaseCE  : std_logic := '0'; -- '0' = C, '1' = E
@@ -106,11 +117,6 @@ architecture tb of LadderWrapper_tb is
 
     -- FILES (WRITE MODE)
     file f_event_ram : text open write_mode is "FOOT_V1_event_ram_log.txt";
-    file f_lth       : text open write_mode is "FOOT_V1_lth_log.txt"; --ADC8
-    file f_hth       : text open write_mode is "FOOT_V1_hth_log.txt"; --ADC8
-    file f_rht       : text open write_mode is "FOOT_V1_rht_log.txt"; --ADC8
-    file f_ped       : text open write_mode is "FOOT_V1_ped_log.txt"; --ADC8
-    file f_flg       : text open write_mode is "FOOT_V1_flg_log.txt"; --NOADC
 
     -- INPUT: convert a non-negative ADC sample to the current LEF word width.
     -- RAW_ADC.txt stores integer ADC values; zero-extensioning it.
@@ -217,6 +223,7 @@ begin
             iWORD       => iWord,
             iPUTD       => iPutd,
             iTRIG       => iTrig,
+            iFULL       => iFull,
 
             oTRIG_L     => oTrigLost,
             oCLUST_ENABLE  => oCEnable,
@@ -225,7 +232,6 @@ begin
             iCAL_ENABLE  => iCalibrationEnable,
             iEVT_ENABLE  => iEventEnable,
             iHOST_CONTROL => iHostControl,
-            oHOST_CONTROL => open,
             iK1         => sK1,
             iK2         => sK2,   
             oBUSY       => oLadderBusy,
@@ -234,27 +240,17 @@ begin
             oER_W_ADDR  => oER_W_ADDR,
             oER_DATA    => oER_DATA,
 
-            oWADDR      => oWADDR,
-
-            oWELTH      => oWELTH,
-            oLTH_DATA   => oLTH_DATA,
-
-            oWEHTH      => oWEHTH,
-            oHTH_DATA   => oHTH_DATA,
-
-            oWERHT      => oWERHT,
-            oRHT_DATA   => oRHT_DATA,
-
-            oWEPED      => oWEPED,
-            oREPED      => oREPED,
-            oPED_DATA   => oPED_DATA,
-
-            oWEFLG      => oWEFLG,
-            oREFLG      => oREFLG,
-            oFLG_DATA   => oFLG_DATA,
-
-            oRESIG      => oRESIG,
-            oSIG_DATA   => oSIG_DATA
+            iPED        => sPedIn_Cal,
+            oPED        => sPedOut_Cal,
+            iSIGRAW     => sSigRawIn_Cal,
+            oSIGRAW     => sSigRawOut_Cal,
+            iSIG        => sSigIn_Cal,
+            oSIG        => sSigOut_Cal,
+            iFLG        => sFlgIn_Cal,
+            oFLG        => sFlgOut_Cal,
+            oLTH        => sLthOut_Cal,
+            oHTH        => sHthOut_Cal,
+            oRHT        => sRhtOut_Cal
         );
 
     -- Clock generation
@@ -290,54 +286,6 @@ begin
                 writeline(f_event_ram, L);
             end if;
 
-            if oWELTH = '1' then
-                addr_i := to_integer(unsigned(oWADDR));
-                val_r  := q12_3_to_real(oLTH_DATA);
-
-                --write(L, string'("LTH")); write(L, string'(" "));
-                write(L, addr_i);    write(L, string'(" "));
-                write_real_3dp(L, val_r);
-                writeline(f_lth, L);
-            end if;
-
-            if oWEHTH = '1' then
-                addr_i := to_integer(unsigned(oWADDR));
-                val_r  := q12_3_to_real(oHTH_DATA);
-
-                --write(L, string'("HTH")); write(L, string'(" "));
-                write(L, addr_i);    write(L, string'(" "));
-                write_real_3dp(L, val_r);
-                writeline(f_hth, L);
-            end if;
-
-            if oWERHT = '1' then
-                addr_i := to_integer(unsigned(oWADDR));
-                val_r  := q12_3_to_real(oRHT_DATA);
-
-                --write(L, string'("RHT")); write(L, string'(" "));
-                write(L, addr_i);    write(L, string'(" "));
-                write_real_3dp(L, val_r);
-                writeline(f_rht, L);
-            end if;
-
-            if oWEPED = '1' then
-                addr_i := to_integer(unsigned(oWADDR));
-                val_r  := q12_3_to_real(oPED_DATA);
-
-                --write(L, string'("PED")); write(L, string'(" "));
-                write(L, addr_i);    write(L, string'(" "));
-                write_real_3dp(L, val_r);
-                writeline(f_ped, L);
-            end if;
-
-            if oWEFLG = '1' then
-                addr_i := to_integer(unsigned(oWADDR));
-
-                write(L, addr_i);
-                write(L, string'(" "));
-                write(L, oFLG_DATA);          -- stampa come vettore (binario)
-                writeline(f_flg, L);
-            end if;
         end if;
     end process logger_proc;
 
@@ -527,10 +475,6 @@ begin
             global_evt_cnt := global_evt_cnt + 1;
         end loop;
 
-        -- TEST SCRITTURA THR e PED da CALIB
-        wait for 200 us;
-        pulse_host(iCLK, iHostControl, "10000101");
-
         -- TEST SCRITTURA THR con RICALCOLO, le TH nuove sono 2.5 e 5.5
         wait for 200 us;
         pulse_host(iCLK, iHostControl, "10000001");
@@ -539,22 +483,6 @@ begin
         wait until rising_edge(iCLK);
         sK2  <= "0000000010110000"; -- Provo a caricare K2 come 5.5
         wait until rising_edge(iCLK);
-
-        -- TEST SCRITTURA PED in internal memory
-        wait for 200 us;
-        pulse_host(iCLK, iHostControl, "10000100");
-
-        -- TEST LETTURA SIGMA
-        wait for 200 us;
-        pulse_host(iCLK, iHostControl, "10100000");
-
-        -- TEST LETTURA FLAG
-        wait for 200 us;
-        pulse_host(iCLK, iHostControl, "10010000");
-
-        -- TEST LETTURA PED
-        wait for 200 us;
-        pulse_host(iCLK, iHostControl, "11000000");
 
         wait for 200 us;
 

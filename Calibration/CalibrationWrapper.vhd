@@ -42,6 +42,7 @@ entity CalibrationWrapper is
     oER_WE                  : out std_logic;
     oER_W_ADDR              : out std_logic_vector(pWADDR_WIDTH-1 downto 0);
     oER_DATA                : out std_logic_vector(pDATA_WIDTH-1 downto 0);
+    iER_FULL                : in  std_logic;
 
     -- THR CHANGE
     iLTH                    : in std_logic_vector(pDATA_WIDTH-1 downto 0);
@@ -50,17 +51,17 @@ entity CalibrationWrapper is
     iKV                     : in std_logic;
 
     -- RAM INTERFACE
-    iPED_RADDR              : in  std_logic_vector(pUSEDW_WIDTH-1 downto 0);
-    oPED_DATA               : out t_FOOT_lef_data;                                  -- ADC8
-    iSIGRAW_RADDR           : in  std_logic_vector(pUSEDW_WIDTH-1 downto 0);
-    oSIGRAW_DATA            : out t_FOOT_lef_data;                                  -- ADC8
-    iSIG_RADDR              : in  std_logic_vector(pUSEDW_WIDTH-1 downto 0);
-    oSIG_DATA               : out t_FOOT_lef_data;                                  -- ADC8
-    iFLG_RADDR              : in  std_logic_vector(pUSEDW_WIDTH-1 downto 0);
-    oFLG_DATA               : out t_FOOT_lef_data;
-    oLTH_DATA               : out t_FOOT_lef_data;                                  -- LOW THR OUTPUT, based on SIG addr
-    oHTH_DATA               : out t_FOOT_lef_data;                                  -- HIGH THR OUTPUT, based on SIG addr
-    oRHT_DATA               : out t_FOOT_lef_data;                                  -- R.HIGH THR OUTPUT, based on SIGRAW addr
+    iPED                    : in  CalibCompIN;
+    oPED                    : out CalibCompOUT;                                     -- ADC8
+    iSIGRAW                 : in  CalibCompIN;
+    oSIGRAW                 : out CalibCompOUT;                                     -- ADC32
+    iSIG                    : in  CalibCompIN;
+    oSIG                    : out CalibCompOUT;                                     -- ADC32
+    iFLG                    : in  CalibCompIN;
+    oFLG                    : out CalibCompOUT;
+    oLTH                    : out CalibCompOUT;                                     -- LOW THR OUTPUT, based on SIG addr
+    oHTH                    : out CalibCompOUT;                                     -- HIGH THR OUTPUT, based on SIG addr
+    oRHT                    : out CalibCompOUT;                                     -- R.HIGH THR OUTPUT, based on SIGRAW addr
 
     -- SMA INTERFACE
     oSMA_priority           : out std_logic;
@@ -195,9 +196,7 @@ begin
   ----------------------------------------------------------------------------
   -- RAM read-address multiplexing
   --
-  -- During flag computation, the calibration FSM temporarily owns the read
-  -- ports of SIGRAW, SIG and FLG. Outside this phase, the external read
-  -- addresses are forwarded unchanged.
+  -- During busy, the calibration FSM owns the read ports. Outside those states, the external record RADDR fields are unchanged.
   ----------------------------------------------------------------------------
   sPedIn.RADDR <= sER_ReadAddr
     when (
@@ -205,7 +204,7 @@ begin
       sCalibState = ER_PED_WAIT or
       sCalibState = ER_PED_SEND
     )
-    else iPED_RADDR;
+    else iPED.RADDR;
 
   sSigRawIn.RADDR <= sER_ReadAddr
     when (
@@ -220,7 +219,7 @@ begin
       sCalibState = RSF_PRE_FLAG or
       sCalibState = RSF_FLAG
     )
-    else iSIGRAW_RADDR;
+    else iSIGRAW.RADDR;
 
   sSigIn.RADDR <= sER_ReadAddr
     when (
@@ -236,7 +235,7 @@ begin
       sCalibState = SF_WAIT or
       sCalibState = SF_FLAG
     )
-    else iSIG_RADDR;
+    else iSIG.RADDR;
 
   sFlgIn.RADDR <= sER_ReadAddr
     when (
@@ -250,18 +249,18 @@ begin
       sCalibState = SF_WAIT or
       sCalibState = SF_FLAG
     )
-    else iFLG_RADDR;
+    else iFLG.RADDR;
 
   ----------------------------------------------------------------------------
   -- RAM outputs to wrapper ports
   ----------------------------------------------------------------------------
-  oPED_DATA    <= sPedOut.DATA;
-  oSIGRAW_DATA <= sSigRawOut.DATA;
-  oSIG_DATA    <= sSigOut.DATA;
-  oFLG_DATA    <= sFlgOut.DATA;
-  oLTH_DATA    <= sLthOut.DATA;
-  oHTH_DATA    <= sHthOut.DATA;
-  oRHT_DATA    <= sRhtOut.DATA;
+  oPED    <= sPedOut;
+  oSIGRAW <= sSigRawOut;
+  oSIG    <= sSigOut;
+  oFLG    <= sFlgOut;
+  oLTH    <= sLthOut;
+  oHTH    <= sHthOut;
+  oRHT    <= sRhtOut;
 
   ----------------------------------------------------------------------------
   -- SQRT INSTANCE
@@ -386,7 +385,8 @@ begin
   --   10 -> SIG
   --   11 -> unused here, ready for occupancy if needed
   --
-  -- FLG is written only by the flag FSM below.
+  -- FLG is written by the flag FSM below. External writes are accepted only
+  -- while the calibration FSM is idle.
   ----------------------------------------------------------------------------
   process(all)
   begin
@@ -406,32 +406,50 @@ begin
     sFlgIn.WADDR      <= (others => '0');
     sFlgIn.WE         <= '0';
 
-    if sMC_WEN = '1' then
-      case sMC_WA(pUSEDW_WIDTH+1 downto pUSEDW_WIDTH) is
-        when "00" =>
-          sPedIn.DATA  <= sMC_Data;
-          sPedIn.WADDR <= sMC_WA(pUSEDW_WIDTH-1 downto 0);
-          sPedIn.WE    <= '1';
+    if sCalibState = IDLE then
+      sPedIn.DATA    <= iPED.DATA;
+      sPedIn.WADDR   <= iPED.WADDR;
+      sPedIn.WE      <= iPED.WE;
 
-        when "01" =>
-          sSigRawIn.DATA  <= sMC_Data;
-          sSigRawIn.WADDR <= sMC_WA(pUSEDW_WIDTH-1 downto 0);
-          sSigRawIn.WE    <= '1';
+      sSigRawIn.DATA  <= iSIGRAW.DATA;
+      sSigRawIn.WADDR <= iSIGRAW.WADDR;
+      sSigRawIn.WE    <= iSIGRAW.WE;
 
-        when "10" =>
-          sSigIn.DATA  <= sMC_Data;
-          sSigIn.WADDR <= sMC_WA(pUSEDW_WIDTH-1 downto 0);
-          sSigIn.WE    <= '1';
+      sSigIn.DATA    <= iSIG.DATA;
+      sSigIn.WADDR   <= iSIG.WADDR;
+      sSigIn.WE      <= iSIG.WE;
 
-        when others =>
-          null;
-      end case;
-    end if;
+      sFlgIn.DATA    <= iFLG.DATA;
+      sFlgIn.WADDR   <= iFLG.WADDR;
+      sFlgIn.WE      <= iFLG.WE;
+    else
+      if sMC_WEN = '1' then
+        case sMC_WA(pUSEDW_WIDTH+1 downto pUSEDW_WIDTH) is
+          when "00" =>
+            sPedIn.DATA  <= sMC_Data;
+            sPedIn.WADDR <= sMC_WA(pUSEDW_WIDTH-1 downto 0);
+            sPedIn.WE    <= '1';
 
-    if sFlgWriteWE = '1' then
-      sFlgIn.DATA  <= sFlgWriteData;
-      sFlgIn.WADDR <= sFlag_WriteAddr;
-      sFlgIn.WE    <= '1';
+          when "01" =>
+            sSigRawIn.DATA  <= sMC_Data;
+            sSigRawIn.WADDR <= sMC_WA(pUSEDW_WIDTH-1 downto 0);
+            sSigRawIn.WE    <= '1';
+
+          when "10" =>
+            sSigIn.DATA  <= sMC_Data;
+            sSigIn.WADDR <= sMC_WA(pUSEDW_WIDTH-1 downto 0);
+            sSigIn.WE    <= '1';
+
+          when others =>
+            null;
+        end case;
+      end if;
+
+      if sFlgWriteWE = '1' then
+        sFlgIn.DATA  <= sFlgWriteData;
+        sFlgIn.WADDR <= sFlag_WriteAddr;
+        sFlgIn.WE    <= '1';
+      end if;
     end if;
   end process;
 
@@ -563,23 +581,25 @@ begin
           sCalibState <= ER_PED_SEND;
 
         when ER_PED_SEND =>
-          oER_W_ADDR <= std_logic_vector(
-            to_unsigned((sER_Adc * pADC_STRIPS) + sER_Strip, oER_W_ADDR'length)
-          );
-          oER_DATA <= sPedOut.DATA(sER_Adc); --@suppress
-          oER_WE   <= '1';
+          if iER_FULL = '0' then
+            oER_W_ADDR <= std_logic_vector(
+              to_unsigned((sER_Adc * pADC_STRIPS) + sER_Strip, oER_W_ADDR'length)
+            );
+            oER_DATA <= sPedOut.DATA(sER_Adc); --@suppress
+            oER_WE   <= '1';
 
-          if sER_Adc /= pADC_NUM - 1 then
-            sER_Adc <= sER_Adc + 1;
-          else
-            sER_Adc <= 0;
-            if sER_Strip /= pADC_STRIPS - 1 then
-              sER_Strip    <= sER_Strip + 1;
-              sER_ReadAddr <= std_logic_vector(to_unsigned(sER_Strip + 1, pUSEDW_WIDTH));
-              sCalibState  <= ER_PED_WAIT;
+            if sER_Adc /= pADC_NUM - 1 then
+              sER_Adc <= sER_Adc + 1;
             else
-              sMCMode      <= "01";   -- SIGRAW step
-              sCalibState  <= WAIT_SIGRAW;
+              sER_Adc <= 0;
+              if sER_Strip /= pADC_STRIPS - 1 then
+                sER_Strip    <= sER_Strip + 1;
+                sER_ReadAddr <= std_logic_vector(to_unsigned(sER_Strip + 1, pUSEDW_WIDTH));
+                sCalibState  <= ER_PED_WAIT;
+              else
+                sMCMode      <= "01";   -- SIGRAW step
+                sCalibState  <= WAIT_SIGRAW;
+              end if;
             end if;
           end if;
 
@@ -607,23 +627,25 @@ begin
           sCalibState <= ER_SIGRAW_SEND;
 
         when ER_SIGRAW_SEND =>
-          oER_W_ADDR <= std_logic_vector(
-            to_unsigned((sER_Adc * pADC_STRIPS) + sER_Strip, oER_W_ADDR'length)
-          );
-          oER_DATA <= sSigRawOut.DATA(sER_Adc); --@suppress
-          oER_WE   <= '1';
+          if iER_FULL = '0' then
+            oER_W_ADDR <= std_logic_vector(
+              to_unsigned((sER_Adc * pADC_STRIPS) + sER_Strip, oER_W_ADDR'length)
+            );
+            oER_DATA <= sSigRawOut.DATA(sER_Adc); --@suppress
+            oER_WE   <= '1';
 
-          if sER_Adc /= pADC_NUM - 1 then
-            sER_Adc <= sER_Adc + 1;
-          else
-            sER_Adc <= 0;
-            if sER_Strip /= pADC_STRIPS - 1 then
-              sER_Strip    <= sER_Strip + 1;
-              sER_ReadAddr <= std_logic_vector(to_unsigned(sER_Strip + 1, pUSEDW_WIDTH));
-              sCalibState  <= ER_SIGRAW_WAIT;
+            if sER_Adc /= pADC_NUM - 1 then
+              sER_Adc <= sER_Adc + 1;
             else
-              sMCMode      <= "10";   -- SIGMA step
-              sCalibState  <= WAIT_SIGMA;
+              sER_Adc <= 0;
+              if sER_Strip /= pADC_STRIPS - 1 then
+                sER_Strip    <= sER_Strip + 1;
+                sER_ReadAddr <= std_logic_vector(to_unsigned(sER_Strip + 1, pUSEDW_WIDTH));
+                sCalibState  <= ER_SIGRAW_WAIT;
+              else
+                sMCMode      <= "10";   -- SIGMA step
+                sCalibState  <= WAIT_SIGMA;
+              end if;
             end if;
           end if;
 
@@ -651,35 +673,37 @@ begin
           sCalibState <= ER_SIG_SEND;
 
         when ER_SIG_SEND =>
-          oER_W_ADDR <= std_logic_vector(
-            to_unsigned((sER_Adc * pADC_STRIPS) + sER_Strip, oER_W_ADDR'length)
-          );
-          oER_DATA <= sSigOut.DATA(sER_Adc); --@suppress
-          oER_WE   <= '1';
+          if iER_FULL = '0' then
+            oER_W_ADDR <= std_logic_vector(
+              to_unsigned((sER_Adc * pADC_STRIPS) + sER_Strip, oER_W_ADDR'length)
+            );
+            oER_DATA <= sSigOut.DATA(sER_Adc); --@suppress
+            oER_WE   <= '1';
 
-          if sER_Adc /= pADC_NUM - 1 then
-            sER_Adc <= sER_Adc + 1;
-          else
-            sER_Adc <= 0;
-            if sER_Strip /= pADC_STRIPS - 1 then
-              sER_Strip    <= sER_Strip + 1;
-              sER_ReadAddr <= std_logic_vector(to_unsigned(sER_Strip + 1, pUSEDW_WIDTH));
-              sCalibState  <= ER_SIG_WAIT;
+            if sER_Adc /= pADC_NUM - 1 then
+              sER_Adc <= sER_Adc + 1;
             else
-              -- Threshold data are exposed directly by CALIB_RAM with DSP, no computation needed
-              -- Start the flag computation.
-              oSMA_priority   <= '1';
+              sER_Adc <= 0;
+              if sER_Strip /= pADC_STRIPS - 1 then
+                sER_Strip    <= sER_Strip + 1;
+                sER_ReadAddr <= std_logic_vector(to_unsigned(sER_Strip + 1, pUSEDW_WIDTH));
+                sCalibState  <= ER_SIG_WAIT;
+              else
+                -- Threshold data are exposed directly by CALIB_RAM with DSP, no computation needed
+                -- Start the flag computation.
+                oSMA_priority   <= '1';
 
-              sFlag_Compare   <= (others => (others => '0'));
-              sFlag_VA_done   <= '0';
-              sFlag_cnt       <= 0;
-              sSMA_InsertOnce <= '0';
-              sSMA_Valid_rst  <= '1';
+                sFlag_Compare   <= (others => (others => '0'));
+                sFlag_VA_done   <= '0';
+                sFlag_cnt       <= 0;
+                sSMA_InsertOnce <= '0';
+                sSMA_Valid_rst  <= '1';
 
-              sFlag_ReadAddr  <= fFlagAddr('0', 0);
-              sFlag_WriteAddr <= fFlagAddr('0', 0);
+                sFlag_ReadAddr  <= fFlagAddr('0', 0);
+                sFlag_WriteAddr <= fFlagAddr('0', 0);
 
-              sCalibState <= RSF_FETCH;
+                sCalibState <= RSF_FETCH;
+              end if;
             end if;
           end if;
 
@@ -875,22 +899,24 @@ begin
           sCalibState <= ER_FLG_SEND;
 
         when ER_FLG_SEND =>
-          oER_W_ADDR <= std_logic_vector(
-            to_unsigned((sER_Adc * pADC_STRIPS) + sER_Strip, oER_W_ADDR'length)
-          );
-          oER_DATA <= sFlgOut.DATA(sER_Adc); --@suppress
-          oER_WE   <= '1';
+          if iER_FULL = '0' then
+            oER_W_ADDR <= std_logic_vector(
+              to_unsigned((sER_Adc * pADC_STRIPS) + sER_Strip, oER_W_ADDR'length)
+            );
+            oER_DATA <= sFlgOut.DATA(sER_Adc); --@suppress
+            oER_WE   <= '1';
 
-          if sER_Adc /= pADC_NUM - 1 then
-            sER_Adc <= sER_Adc + 1;
-          else
-            sER_Adc <= 0;
-            if sER_Strip /= pADC_STRIPS - 1 then
-              sER_Strip    <= sER_Strip + 1;
-              sER_ReadAddr <= std_logic_vector(to_unsigned(sER_Strip + 1, pUSEDW_WIDTH));
-              sCalibState  <= ER_FLG_WAIT;
+            if sER_Adc /= pADC_NUM - 1 then
+              sER_Adc <= sER_Adc + 1;
             else
-              sCalibState <= IDLE;
+              sER_Adc <= 0;
+              if sER_Strip /= pADC_STRIPS - 1 then
+                sER_Strip    <= sER_Strip + 1;
+                sER_ReadAddr <= std_logic_vector(to_unsigned(sER_Strip + 1, pUSEDW_WIDTH));
+                sCalibState  <= ER_FLG_WAIT;
+              else
+                sCalibState <= IDLE;
+              end if;
             end if;
           end if;
 

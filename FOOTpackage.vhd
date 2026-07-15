@@ -669,6 +669,7 @@ package FOOTpackage is
       oER_WE                  : out std_logic;
       oER_W_ADDR              : out std_logic_vector(pWADDR_WIDTH-1 downto 0);
       oER_DATA                : out std_logic_vector(pDATA_WIDTH-1 downto 0);
+      iER_FULL                : in  std_logic;
 
       -- THR CHANGE
       iLTH                    : in std_logic_vector(pDATA_WIDTH-1 downto 0);
@@ -677,17 +678,17 @@ package FOOTpackage is
       iKV                     : in std_logic;
 
       -- RAM INTERFACE
-      iPED_RADDR              : in  std_logic_vector(pUSEDW_WIDTH-1 downto 0);
-      oPED_DATA               : out t_FOOT_lef_data;                                  -- ADC8
-      iSIGRAW_RADDR           : in  std_logic_vector(pUSEDW_WIDTH-1 downto 0);
-      oSIGRAW_DATA            : out t_FOOT_lef_data;                                  -- ADC8
-      iSIG_RADDR              : in  std_logic_vector(pUSEDW_WIDTH-1 downto 0);
-      oSIG_DATA               : out t_FOOT_lef_data;                                  -- ADC8
-      iFLG_RADDR              : in  std_logic_vector(pUSEDW_WIDTH-1 downto 0);
-      oFLG_DATA               : out t_FOOT_lef_data;
-      oLTH_DATA               : out t_FOOT_lef_data;                                  -- LOW THR OUTPUT, based on SIG addr
-      oHTH_DATA               : out t_FOOT_lef_data;                                  -- HIGH THR OUTPUT, based on SIG addr
-      oRHT_DATA               : out t_FOOT_lef_data;                                  -- R.HIGH THR OUTPUT, based on SIGRAW addr
+      iPED                    : in  CalibCompIN;
+      oPED                    : out CalibCompOUT;                                     -- ADC8
+      iSIGRAW                 : in  CalibCompIN;
+      oSIGRAW                 : out CalibCompOUT;                                     -- ADC32
+      iSIG                    : in  CalibCompIN;
+      oSIG                    : out CalibCompOUT;                                     -- ADC32
+      iFLG                    : in  CalibCompIN;
+      oFLG                    : out CalibCompOUT;
+      oLTH                    : out CalibCompOUT;                                     -- LOW THR OUTPUT, based on SIG addr
+      oHTH                    : out CalibCompOUT;                                     -- HIGH THR OUTPUT, based on SIG addr
+      oRHT                    : out CalibCompOUT;                                     -- R.HIGH THR OUTPUT, based on SIGRAW addr
 
       -- SMA INTERFACE
       oSMA_priority           : out std_logic;
@@ -718,6 +719,7 @@ package FOOTpackage is
         iWORD                   : in  t_FOOT_lef_data;  -- Data from multiADCPlaneInterface, in parallel from all the ADCs.     ** iMULTI_FIFO.tFifoIn_ADC.data **
         iPUTD                   : in  std_logic;        -- Write-enable from ADC-LEF                                            ** iMULTI_FIFO.tFifoIn_ADC.wr   **
         iTRIG                   : in  std_logic;        -- Trigger from ADC-LEF                                                 ** iCNT.start **
+        iFULL                   : in  std_logic;        -- Downstream Event RAM/FIFO full
 
         -- Trigger Lost
         oTRIG_L                 : out std_logic;    -- Trigger LOST or Putd LOST
@@ -730,8 +732,7 @@ package FOOTpackage is
         iCAL_ENABLE             : in  std_logic;    -- '1': calibration; '0': no calibration
         iEVT_ENABLE             : in  std_logic;    -- '1': event run, if not cal; '0': no run
 
-        iHOST_CONTROL           : in std_logic_vector(7 downto 0);
-        oHOST_CONTROL           : out std_logic_vector(6 downto 0);
+        iTHR_VALID              : in std_logic;
         iK1                     : in std_logic_vector(pDATA_WIDTH-1 downto 0);
         iK2                     : in std_logic_vector(pDATA_WIDTH-1 downto 0);
 
@@ -742,28 +743,18 @@ package FOOTpackage is
         oER_W_ADDR              : out std_logic_vector(pWADDR_WIDTH-1 downto 0);
         oER_DATA                : out std_logic_vector(pDATA_WIDTH-1 downto 0);
 
-        -- ** CALIB RAM UNLOAD ONCE CALIBRATION IS OVER**
-        oWADDR                  : out std_logic_vector(pWADDR_WIDTH-1 downto 0);
-
-        oWELTH                  : out std_logic;
-        oLTH_DATA               : out std_logic_vector(pDATA_WIDTH-1 downto 0);
-
-        oWEHTH                  : out std_logic;
-        oHTH_DATA               : out std_logic_vector(pDATA_WIDTH-1 downto 0);
-
-        oWERHT                  : out std_logic;
-        oRHT_DATA               : out std_logic_vector(pDATA_WIDTH-1 downto 0);
-
-        oWEPED                  : out std_logic;
-        oREPED                  : out std_logic;
-        oPED_DATA               : out std_logic_vector(pDATA_WIDTH-1 downto 0);
-
-        oWEFLG                  : out std_logic;
-        oREFLG                  : out std_logic;
-        oFLG_DATA               : out std_logic_vector(pDATA_WIDTH-1 downto 0);
-
-        oRESIG                  : out std_logic;
-        oSIG_DATA               : out std_logic_vector(pDATA_WIDTH-1 downto 0)     
+        -- Direct calibration RAM access, available only when oBUSY = '0'.
+        iPED                    : in  CalibCompIN;
+        oPED                    : out CalibCompOUT;
+        iSIGRAW                 : in  CalibCompIN;
+        oSIGRAW                 : out CalibCompOUT;
+        iSIG                    : in  CalibCompIN;
+        oSIG                    : out CalibCompOUT;
+        iFLG                    : in  CalibCompIN;
+        oFLG                    : out CalibCompOUT;
+        oLTH                    : out CalibCompOUT;
+        oHTH                    : out CalibCompOUT;
+        oRHT                    : out CalibCompOUT
     );
   end component LadderWrapper;
 

@@ -28,6 +28,7 @@ entity LadderWrapper is
         iWORD                   : in  t_FOOT_lef_data;  -- Data from multiADCPlaneInterface, in parallel from all the ADCs. ** iMULTI_FIFO.tFifoIn_ADC.data **
         iPUTD                   : in  std_logic;    -- Write-enable from ADC-LEF                                            ** iMULTI_FIFO.tFifoIn_ADC.wr   **
         iTRIG                   : in  std_logic;    -- Trigger from ADC-LEF                                                 ** iCNT.start **
+        iFULL                   : in  std_logic;    -- Downstream Event RAM/FIFO full
 
         -- Trigger Lost
         oTRIG_L                 : out std_logic;    -- Trigger LOST or Putd LOST
@@ -40,8 +41,7 @@ entity LadderWrapper is
         iCAL_ENABLE             : in  std_logic;    -- '1': calibration; '0': no calibration
         iEVT_ENABLE             : in  std_logic;    -- '1': event run, if not cal; '0': no run
 
-        iHOST_CONTROL           : in std_logic_vector(7 downto 0);
-        oHOST_CONTROL           : out std_logic_vector(6 downto 0);
+        iTHR_VALID              : in std_logic;
         iK1                     : in std_logic_vector(pDATA_WIDTH-1 downto 0);
         iK2                     : in std_logic_vector(pDATA_WIDTH-1 downto 0);
 
@@ -52,28 +52,18 @@ entity LadderWrapper is
         oER_W_ADDR              : out std_logic_vector(pWADDR_WIDTH-1 downto 0);
         oER_DATA                : out std_logic_vector(pDATA_WIDTH-1 downto 0);
 
-        -- ** CALIB RAM UNLOAD ONCE CALIBRATION IS OVER**
-        oWADDR                  : out std_logic_vector(pWADDR_WIDTH-1 downto 0);
-
-        oWELTH                  : out std_logic;
-        oLTH_DATA               : out std_logic_vector(pDATA_WIDTH-1 downto 0);
-
-        oWEHTH                  : out std_logic;
-        oHTH_DATA               : out std_logic_vector(pDATA_WIDTH-1 downto 0);
-
-        oWERHT                  : out std_logic;
-        oRHT_DATA               : out std_logic_vector(pDATA_WIDTH-1 downto 0);
-
-        oWEPED                  : out std_logic;
-        oREPED                  : out std_logic;
-        oPED_DATA               : out std_logic_vector(pDATA_WIDTH-1 downto 0);
-
-        oWEFLG                  : out std_logic;
-        oREFLG                  : out std_logic;
-        oFLG_DATA               : out std_logic_vector(pDATA_WIDTH-1 downto 0);
-
-        oRESIG                  : out std_logic;
-        oSIG_DATA               : out std_logic_vector(pDATA_WIDTH-1 downto 0)     
+        -- Direct calibration RAM access, available only when oBUSY = '0'.
+        iPED                    : in  CalibCompIN;
+        oPED                    : out CalibCompOUT;
+        iSIGRAW                 : in  CalibCompIN;
+        oSIGRAW                 : out CalibCompOUT;
+        iSIG                    : in  CalibCompIN;
+        oSIG                    : out CalibCompOUT;
+        iFLG                    : in  CalibCompIN;
+        oFLG                    : out CalibCompOUT;
+        oLTH                    : out CalibCompOUT;
+        oHTH                    : out CalibCompOUT;
+        oRHT                    : out CalibCompOUT
     );
 end entity LadderWrapper;
 
@@ -91,12 +81,19 @@ architecture Behavioral of LadderWrapper is
     signal sLW_StripCnt  : natural range 0 to pADC_STRIPS - 1;
     signal sLW_Adc       : natural range 0 to pADC_NUM - 1;
 
-    -- Direct read interface to the calibration RAM exposed by CalibrationWrapper.
+    -- Direct interface to the calibration RAM exposed by CalibrationWrapper.
     -- PED is used by pedestal subtraction; SIGRAW drives the derived RHT path used by CN subtraction.
-    signal sPED_RADDR_CW       : std_logic_vector(6 downto 0);
-    signal sSIGRAW_RADDR_CW    : std_logic_vector(6 downto 0);
-    signal sSIG_RADDR_CW       : std_logic_vector(6 downto 0);
-    signal sFLG_RADDR_CW       : std_logic_vector(6 downto 0);
+    signal sPedIn_CW           : CalibCompIN;
+    signal sSigRawIn_CW        : CalibCompIN;
+    signal sSigIn_CW           : CalibCompIN;
+    signal sFlgIn_CW           : CalibCompIN;
+    signal sPedOut_CW          : CalibCompOUT;
+    signal sSigRawOut_CW       : CalibCompOUT;
+    signal sSigOut_CW          : CalibCompOUT;
+    signal sFlgOut_CW          : CalibCompOUT;
+    signal sLthOut_CW          : CalibCompOUT;
+    signal sHthOut_CW          : CalibCompOUT;
+    signal sRhtOut_CW          : CalibCompOUT;
 
     signal sPedestal_Ram_Addr  : std_logic_vector(6 downto 0);
     signal sPedestal_Ram_Data  : t_FOOT_lef_data;
@@ -166,16 +163,9 @@ architecture Behavioral of LadderWrapper is
     signal sPutDGated      : std_logic; -- To send data to lower levels only if in event
 
     signal sValidEventRam   : std_logic;
-
-    -- Calibration RAM unload FSM.
-    type   sSendState_type is (SEND_IDLE, SEND_FETCH, SEND_SEND);
-    signal sSend_State       : sSendState_type;
-    signal sSendMode         : std_logic_vector(2 downto 0);
-    signal sSendHostControl  : std_logic_vector(6 downto 0);
-    signal sStripSend        : natural range 0 to (pADC_STRIPS * pADC_NUM);
-    signal sStripWE          : natural range 0 to (pADC_STRIPS * pADC_NUM);
-    signal sSendReadAddr     : std_logic_vector(6 downto 0);
-    signal sSendActive       : std_logic;
+    signal sSystemBusy      : std_logic;
+    signal sCalRamExtAccess : std_logic;
+    signal sTrigAccepted    : std_logic;
 
     -- SIGNAL TO START CALIBRATING JUST ONCE FOR TESTING
     signal sCAL_sync    : std_logic := '0';
@@ -184,9 +174,6 @@ architecture Behavioral of LadderWrapper is
     signal sCalPending  : std_logic := '0';
     signal sCalInternal : std_logic := '0'; -- combinational start pulse on the first useful trigger
     signal sIsCalibrating : std_logic;
-
-    signal sCAL_HOST_control : std_logic_vector(6 downto 0);
-    signal sHostCmdForCalPending : std_logic := '0';
 
     -- K save
     type   sKState_type is (IDLE, SYNC, K1, K2);
@@ -236,21 +223,23 @@ begin
     -- If i get a putD while in IDLE it means that data has been lost
     oTRIG_L <= '1' when (sLW_State = IDLE and sPUTD_edge = '1') or sTrig_Lost = '1' else
                '0';
-    -- Internal Reset and calibration RAM unloading are part of the busy interval.
-    oBUSY   <= '1' when (sLW_State /= IDLE) or (sCalRst = '1') or
-                           (sSend_State /= SEND_IDLE) else
-               '0';
+    sSystemBusy <= '1' when (sLW_State /= IDLE) or (sCalRst = '1') or
+                            (sEvent_Running = '1') or (iTRIG = '1') or
+                            (iFULL = '1') else
+                   '0';
+
+    -- External calibration RAM access is blocked as soon as the system owns,
+    -- or is about to own, the calibration memories.
+    sCalRamExtAccess <= '1' when sSystemBusy = '0' else
+                        '0';
+
+    oBUSY <= sSystemBusy;
+
+    sTrigAccepted <= '1' when (iTRIG = '1') and (iFULL = '0') else
+                     '0';
 
     -- Valid Event ram for processed events.
     oVALID_EVT_RAM <= sValidEventRam;
-    oHOST_CONTROL <= sSendHostControl;
-
-    -- the data strobes are asserted after the RAM read latency, therefore
-    -- sStripWE counts transferred words while the visible address is stripWE-1.
-    oWADDR <= (others => '0') when sStripWE = 0 else
-              std_logic_vector(to_unsigned(natural(sStripWE - 1), oWADDR'length));
-
-    sSendActive <= '1' when sSend_State /= SEND_IDLE else '0';
 
     sIsCalibrating <= '1' when (sLW_State = CALIB) or (sLW_State = C1) else '0';
 
@@ -260,7 +249,7 @@ begin
     -- so the trigger is not consumed only to arm the submodule and then wasted.
     sCalInternal <= '1' when (sLW_State = IDLE) and
                              (sCalPending = '1') and
-                             (iTRIG = '1') else
+                             (sTrigAccepted = '1') else
                     '0';
 -- SMA DEC
     SMA_WRAP : StreamingMedianOfMedianWrap
@@ -387,28 +376,29 @@ begin
             oMC_READY         => sCWReady,
             iCALIB_ENABLE     => sCalInternal,
             oCALIB_BUSY       => sCWCalBusy,
-            iTRIG             => iTRIG,
+            iTRIG             => sTrigAccepted,
 
             oER_WE            => sCW_ER_WE,
             oER_W_ADDR        => sCW_ER_W_ADDR,
             oER_DATA          => sCW_ER_DATA,
+            iER_FULL          => iFULL,
 
             iLTH              => sK1,
             iHTH              => sK2,
             iKC               => sKC,
             iKV               => sKV,
 
-            iPED_RADDR        => sPED_RADDR_CW,         --@suppress
-            oPED_DATA         => sPedestal_Ram_Data,
-            iSIGRAW_RADDR     => sSIGRAW_RADDR_CW,      --@suppress
-            oSIGRAW_DATA      => sSIGRAW_Ram_Data,
-            iSIG_RADDR        => sSIG_RADDR_CW,         --@suppress
-            oSIG_DATA         => sSIG_Ram_Data,
-            iFLG_RADDR        => sFLG_RADDR_CW,         --@suppress
-            oFLG_DATA         => sFLG_Ram_Data,
-            oLTH_DATA         => sLTH_Ram_Data,
-            oHTH_DATA         => sHTH_Ram_Data,
-            oRHT_DATA         => sRHT_Ram_Data,
+            iPED              => sPedIn_CW,
+            oPED              => sPedOut_CW,
+            iSIGRAW           => sSigRawIn_CW,
+            oSIGRAW           => sSigRawOut_CW,
+            iSIG              => sSigIn_CW,
+            oSIG              => sSigOut_CW,
+            iFLG              => sFlgIn_CW,
+            oFLG              => sFlgOut_CW,
+            oLTH              => sLthOut_CW,
+            oHTH              => sHthOut_CW,
+            oRHT              => sRhtOut_CW,
 
             oSMA_priority     => sSMA_CAL_priority,
             oSMA_RST          => sSMA_CAL_rst,
@@ -457,24 +447,46 @@ begin
     sCNFifo_WE      <= sCN_WeOut when sLW_State /= IDLE else '0';
     sCWData         <= sCNFifo_Q when sLW_State /= IDLE else (others => (others => '0'));
 
+    -- CalibrationWrapper record mapping.
+    sPedIn_CW.DATA     <= iPED.DATA    when sCalRamExtAccess = '1' else (others => (others => '0'));
+    sPedIn_CW.WADDR    <= iPED.WADDR   when sCalRamExtAccess = '1' else (others => '0');
+    sPedIn_CW.WE       <= iPED.WE      when sCalRamExtAccess = '1' else '0';
+    sSigRawIn_CW.DATA  <= iSIGRAW.DATA when sCalRamExtAccess = '1' else (others => (others => '0'));
+    sSigRawIn_CW.WADDR <= iSIGRAW.WADDR when sCalRamExtAccess = '1' else (others => '0');
+    sSigRawIn_CW.WE    <= iSIGRAW.WE   when sCalRamExtAccess = '1' else '0';
+    sSigIn_CW.DATA     <= iSIG.DATA    when sCalRamExtAccess = '1' else (others => (others => '0'));
+    sSigIn_CW.WADDR    <= iSIG.WADDR   when sCalRamExtAccess = '1' else (others => '0');
+    sSigIn_CW.WE       <= iSIG.WE      when sCalRamExtAccess = '1' else '0';
+    sFlgIn_CW.DATA     <= iFLG.DATA    when sCalRamExtAccess = '1' else (others => (others => '0'));
+    sFlgIn_CW.WADDR    <= iFLG.WADDR   when sCalRamExtAccess = '1' else (others => '0');
+    sFlgIn_CW.WE       <= iFLG.WE      when sCalRamExtAccess = '1' else '0';
+
+    sPedestal_Ram_Data <= sPedOut_CW.DATA;
+    sSIGRAW_Ram_Data   <= sSigRawOut_CW.DATA;
+    sSIG_Ram_Data      <= sSigOut_CW.DATA;
+    sFLG_Ram_Data      <= sFlgOut_CW.DATA;
+    sLTH_Ram_Data      <= sLthOut_CW.DATA;
+    sHTH_Ram_Data      <= sHthOut_CW.DATA;
+    sRHT_Ram_Data      <= sRhtOut_CW.DATA;
+
     -- RAM read-address arbitration.
-    -- In normal processing, PED and SIGRAW/RHT are consumed by the event path. SIGMA and FLG are free for Clustering if not requested.
-    -- During an unload burst, the send FSM owns the requested banks.
-    sPED_RADDR_CW <= sSendReadAddr when
-                        (sSendActive = '1' and (sSendMode = "111" or sSendMode = "000"))
-                     else sPedestal_Ram_Addr;
+    -- In normal processing, PED and SIGRAW/RHT are consumed by the event path.
+    -- External addresses are forwarded only while the whole wrapper is idle.
+    sPedIn_CW.RADDR <= iPED.RADDR when sCalRamExtAccess = '1' else sPedestal_Ram_Addr;
 
-    sSIGRAW_RADDR_CW <= sSendReadAddr when
-                           (sSendActive = '1' and sSendMode = "111")
-                        else sRHT_Ram_Addr;
+    sSigRawIn_CW.RADDR <= iSIGRAW.RADDR when sCalRamExtAccess = '1' else sRHT_Ram_Addr;
 
-    sSIG_RADDR_CW <= sSendReadAddr when
-                        (sSendActive = '1' and (sSendMode = "111" or sSendMode = "010"))
-                     else (others => '0');
+    sSigIn_CW.RADDR <= iSIG.RADDR when sCalRamExtAccess = '1' else (others => '0');
 
-    sFLG_RADDR_CW <= sSendReadAddr when
-                        (sSendActive = '1' and (sSendMode = "111" or sSendMode = "011"))
-                     else (others => '0');
+    sFlgIn_CW.RADDR <= iFLG.RADDR when sCalRamExtAccess = '1' else (others => '0');
+
+    oPED.DATA    <= sPedOut_CW.DATA    when sCalRamExtAccess = '1' else (others => (others => '0'));
+    oSIGRAW.DATA <= sSigRawOut_CW.DATA when sCalRamExtAccess = '1' else (others => (others => '0'));
+    oSIG.DATA    <= sSigOut_CW.DATA    when sCalRamExtAccess = '1' else (others => (others => '0'));
+    oFLG.DATA    <= sFlgOut_CW.DATA    when sCalRamExtAccess = '1' else (others => (others => '0'));
+    oLTH.DATA    <= sLthOut_CW.DATA    when sCalRamExtAccess = '1' else (others => (others => '0'));
+    oHTH.DATA    <= sHthOut_CW.DATA    when sCalRamExtAccess = '1' else (others => (others => '0'));
+    oRHT.DATA    <= sRhtOut_CW.DATA    when sCalRamExtAccess = '1' else (others => (others => '0'));
 
     PUTD_EDGE_PROC : process(iCLK, iRST)
     begin
@@ -520,8 +532,6 @@ begin
     begin
     if iRST = '1' then
         sCalPending              <= '0';
-        sCAL_HOST_control         <= (others => '0');
-        sHostCmdForCalPending     <= '0';
 
         sKV  <= '0';
         sKC  <= '0';
@@ -535,25 +545,10 @@ begin
             sCalPending <= '1';
         end if;
 
-        -- Host control valid and not calibrating
-        if (iHOST_CONTROL(7) = '1') and (sIsCalibrating = '0') then
-            -- If with host contro a calib is requested then
-            if iCAL_ENABLE = '1' then
-                sCAL_HOST_control     <= iHOST_CONTROL(6 downto 0);
-                sHostCmdForCalPending <= '1';
-            end if;
-        end if;
-
         -- Consume the pending request on the same first useful trigger that
         -- is forwarded combinationally (see above) to CalibrationWrapper.
-        if (sLW_State = IDLE) and (iTRIG = '1') and (sCalPending = '1') then
+        if (sLW_State = IDLE) and (sTrigAccepted = '1') and (sCalPending = '1') then
             sCalPending  <= '0';
-
-            if sHostCmdForCalPending = '1' then
-                sHostCmdForCalPending <= '0';
-            else
-                sCAL_HOST_control <= (others => '0');
-            end if;
         end if;
 
         -- Fetch of mult constants 
@@ -562,7 +557,7 @@ begin
                 sKV  <= '0';
                 sKC  <= '0';
                 -- If valid, check constants
-                if (iHOST_CONTROL(7) = '1') then
+                if (iTHR_VALID = '1') then
                     sK_state  <= SYNC;
                 end if;
             -- Host invia le THR con un ciclo di delay
@@ -599,187 +594,6 @@ begin
         end if;
     end process BUSY_DELAY_PROC;
 
-    ---------------------------------------------------------------------------
-    -- CALIB RAM UNLOAD FSM
-    --
-    -- Address order is preserved as a linear ADC-major mapping:
-    -- ADDR = ADC_INDEX * pADC_STRIPS + STRIP_INDEX.
-    -- Example with 128 strips: 0..127 for ADC0, 128..255 for ADC1, etc.
-    ---------------------------------------------------------------------------
-    CALIB_RAM_UNLOAD_PROC : process(iCLK, iRST)
-    begin
-        if iRST = '1' then
-            sSend_State      <= SEND_IDLE;
-            sSendMode        <= (others => '0');
-            sSendHostControl <= (others => '0');
-            sStripSend       <= 0;
-            sStripWE         <= 0;
-            sSendReadAddr    <= (others => '0');
-
-            oWELTH   <= '0';
-            oWEHTH   <= '0';
-            oWERHT   <= '0';
-            oWEPED   <= '0';
-            oREPED   <= '0';
-            oWEFLG   <= '0';
-            oREFLG   <= '0';
-            oRESIG   <= '0';
-
-            oLTH_DATA <= (others => '0');
-            oHTH_DATA <= (others => '0');
-            oRHT_DATA <= (others => '0');
-            oPED_DATA <= (others => '0');
-            oFLG_DATA <= (others => '0');
-            oSIG_DATA <= (others => '0');
-
-        elsif rising_edge(iCLK) then
-            case sSend_State is
-                when SEND_IDLE =>
-                    oWELTH <= '0';
-                    oWEHTH <= '0';
-                    oWERHT <= '0';
-                    oWEPED <= '0';
-                    oREPED <= '0';
-                    oWEFLG <= '0';
-                    oREFLG <= '0';
-                    oRESIG <= '0';
-
-                    sStripSend    <= 0;
-                    sStripWE      <= 0;
-                    sSendReadAddr <= (others => '0');
-
-                    -- Capture standalone host requests while no calibration
-                    -- sequence owns the unload interface.
-                    if (iHOST_CONTROL(7) = '1') and (sIsCalibrating = '0') and
-                       (iCAL_ENABLE = '0') then
-                        sSendHostControl <= iHOST_CONTROL(6 downto 0);
-                    end if;
-
-                    -- Automatic unload once the calibration FSM has completed.
-                    -- Bits 0 and 2 are ignored here.
-                    if sCWCalBusy_Falling = '1' then
-                        sSend_State      <= SEND_FETCH;
-                        sSendMode        <= "111";
-                        sSendReadAddr    <= (others => '0');
-                        sStripSend       <= 1;
-                        sSendHostControl <= sCAL_HOST_control;
-                        sSendHostControl(0) <= '0';
-                        sSendHostControl(2) <= '0';
-
-                    -- Standalone full unload request: thresholds and/or pedestals.
-                    elsif (sLW_State = IDLE) and
-                          ((sSendHostControl(0) = '1') or (sSendHostControl(2) = '1')) and
-                          (sKV = '1') then
-                        sSend_State      <= SEND_FETCH;
-                        sSendMode        <= "111";
-                        sSendReadAddr    <= (others => '0');
-                        sStripSend       <= 1;
-                        sSendHostControl(1) <= '0';
-                        sSendHostControl(3) <= '0';
-
-                    -- Standalone readback requests.
-                    elsif (sLW_State = IDLE) and (sSendHostControl(4) = '1') then
-                        sSend_State   <= SEND_FETCH;
-                        sSendMode     <= "011"; -- FLG
-                        sSendReadAddr <= (others => '0');
-                        sStripSend    <= 1;
-
-                    elsif (sLW_State = IDLE) and (sSendHostControl(5) = '1') then
-                        sSend_State   <= SEND_FETCH;
-                        sSendMode     <= "010"; -- SIG
-                        sSendReadAddr <= (others => '0');
-                        sStripSend    <= 1;
-
-                    elsif (sLW_State = IDLE) and (sSendHostControl(6) = '1') then
-                        sSend_State   <= SEND_FETCH;
-                        sSendMode     <= "000"; -- PED
-                        sSendReadAddr <= (others => '0');
-                        sStripSend    <= 1;
-                    end if;
-
-                when SEND_FETCH =>
-                    -- First prefetch stage: address word 1 while word 0,
-                    -- requested in SEND_IDLE, propagates through the RAM.
-                    if sStripSend /= (pADC_STRIPS * pADC_NUM) then
-                        sSendReadAddr <= std_logic_vector(
-                            to_unsigned(sStripSend mod pADC_STRIPS, sSendReadAddr'length)
-                        );
-                        sStripSend <= sStripSend + 1;
-                    end if;
-                    sSend_State <= SEND_SEND;
-
-                when SEND_SEND =>
-                    -- Keep prefetching the next strip address while sending the
-                    -- word returned by the previous RAM request.
-                    if sStripSend /= (pADC_STRIPS * pADC_NUM) then
-                        sSendReadAddr <= std_logic_vector(
-                            to_unsigned(sStripSend mod pADC_STRIPS, sSendReadAddr'length)
-                        );
-                        sStripSend <= sStripSend + 1;
-                    end if;
-
-                    if sStripWE /= (pADC_STRIPS * pADC_NUM) then
-                        if sSendMode = "111" then
-                            -- Full unload: RHT and FLG are always transferred.
-                            -- LTH/HTH and PED keep the legacy host-bit gating.
-                            if (sSendHostControl(0) = '1') or (sSendHostControl(1) = '1') then
-                                oWEHTH <= '1';
-                                oWELTH <= '1';
-                            end if;
-
-                            if (sSendHostControl(2) = '1') or (sSendHostControl(3) = '1') then
-                                oWEPED <= '1';
-                            end if;
-
-                            oWERHT <= '1';
-                            oWEFLG <= '1';
-
-                            -- To obtain adc num
-                            oHTH_DATA <= sHTH_Ram_Data(sStripWE / pADC_STRIPS);         --@suppress
-                            oLTH_DATA <= sLTH_Ram_Data(sStripWE / pADC_STRIPS);         --@suppress
-                            oRHT_DATA <= sRHT_Ram_Data(sStripWE / pADC_STRIPS);         --@suppress
-                            oPED_DATA <= sPedestal_Ram_Data(sStripWE / pADC_STRIPS);    --@suppress
-                            oFLG_DATA <= sFLG_Ram_Data(sStripWE / pADC_STRIPS);         --@suppress
-
-                        elsif sSendMode = "011" then
-                            oREFLG    <= '1';
-                            oFLG_DATA <= sFLG_Ram_Data(sStripWE / pADC_STRIPS);         --@suppress
-
-                        elsif sSendMode = "010" then
-                            oRESIG    <= '1';
-                            oSIG_DATA <= sSIG_Ram_Data(sStripWE / pADC_STRIPS);         --@suppress
-
-                        elsif sSendMode = "000" then
-                            oREPED    <= '1';
-                            oPED_DATA <= sPedestal_Ram_Data(sStripWE / pADC_STRIPS);    --@suppress
-                        end if;
-
-                        sStripWE <= sStripWE + 1;
-
-                    else
-                        oWELTH <= '0';
-                        oWEHTH <= '0';
-                        oWERHT <= '0';
-                        oWEPED <= '0';
-                        oREPED <= '0';
-                        oWEFLG <= '0';
-                        oREFLG <= '0';
-                        oRESIG <= '0';
-
-                        sSend_State      <= SEND_IDLE;
-                        sSendMode        <= (others => '0');
-                        sSendHostControl <= (others => '0');
-                        sStripSend       <= 0;
-                        sStripWE         <= 0;
-                        sSendReadAddr    <= (others => '0');
-                    end if;
-
-                when others => --@suppress
-                    sSend_State <= SEND_IDLE;
-            end case;
-        end if;
-    end process CALIB_RAM_UNLOAD_PROC;
-
     -- Event running signal and data lost
     RUNNING_BUSY_LOGIC_PROC : process(iCLK, iRST)
     begin
@@ -793,11 +607,11 @@ begin
             sEvent_End <= '0';
 
             -- If trigger comel and not in eventm then start event
-            if iTRIG = '1' and sEvent_Running = '0' then
+            if sTrigAccepted = '1' and sEvent_Running = '0' then
                 sEvent_Running  <= '1';
                 sEvent_StripCnt <= 0;
             -- If trigger comes while in event (should not happen) then data lost. Signal it.
-            elsif iTRIG = '1' and sEvent_Running = '1' then
+            elsif iTRIG = '1' and (sEvent_Running = '1' or iFULL = '1') then
                 sTrig_Lost <= '1';
             end if;
 
@@ -842,11 +656,11 @@ begin
             sValidEventRam       <= '0';
 
         elsif rising_edge(iCLK) then
+            oER_WE <= '0';
+
             case sLW_State is
                 when IDLE =>
                     -- TODO: Maybe Calibration-RAM-to-event-RAM debug forwarding?
-                    oER_WE <= '0';
-                    
                     sCWCalBusy_FallLatch <= '0';
                     sCalRst              <= '0'; -- Deassert del reset
                     oCLUST_ENABLE        <= '0';
@@ -855,7 +669,7 @@ begin
                     sCN_En     <= '0';
 
                     -- FIXME: iCalibration for the second time does not allow MC MODULE
-                    if iTRIG = '1' then
+                    if sTrigAccepted = '1' then
                         if sCalPending = '1' then
                             sLW_State <= CALIB;
                         elsif iEVT_ENABLE = '1' then
@@ -895,8 +709,7 @@ begin
                     if sCNFifo_Empty = '0' and sCWReady = '1' then -- If there is data in CNFifo and CW is ready, read data from fifo and, in C1, send it to CALIB W by PutData.
                         sCNFifo_RE <= '1';
                         sLW_State  <= C1;
-                    elsif sCWCalBusy_FallLatch = '1' and sCNFifo_Empty = '1' and
-                          sSend_State = SEND_IDLE then
+                    elsif sCWCalBusy_FallLatch = '1' and sCNFifo_Empty = '1' then
 
                         sLW_State <= IDLE;
                         sCalRst   <= '1';
@@ -921,7 +734,7 @@ begin
                     sCNFifo_RE <= '0';
                     oCLUST_ENABLE <= '0'; -- TEST TO ENABLE CLUSTERING.
 
-                    if sCNFifo_Empty = '0' then
+                    if sCNFifo_Empty = '0' and iFULL = '0' then
                         sCNFifo_RE <= '1';
                         sLW_State  <= WE;
                         sLW_Adc    <= 0;
@@ -930,7 +743,9 @@ begin
 
                 when WE =>
                     sCNFifo_RE <= '0';
-                    sLW_State  <= E1;
+                    if iFULL = '0' then
+                        sLW_State <= E1;
+                    end if;
 
                 when E1 =>
                     sCNFifo_RE <= '0';
@@ -939,31 +754,34 @@ begin
                     oER_W_ADDR <= std_logic_vector(
                         to_unsigned((sLW_Adc * pADC_STRIPS) + sLW_StripCnt, oER_W_ADDR'length)
                     );
-                    oER_WE     <= '1';
                     -- * oER_DATA without THR
                     oER_DATA   <= sCNFifo_Q(sLW_Adc); --@suppress
 
-                    if sLW_Adc = pADC_NUM - 1 then
-                        if sLW_StripCnt = pADC_STRIPS - 1 then
-                            sLW_StripCnt <= 0;
-                            -- EVENT RESET, if another trigger has arrived during RAM SAVING IT WILL CONTINUE TO ACQUIRE DATA.
-                            if sEvent_Running = '0' then
-                                sCalRst   <= '1';        -- JUST A SAFETY RESET
-                                sLW_State <= IDLE;
-                                oCLUST_ENABLE <= '1';    -- TEST TO ENABLE CLUSTERING.
-                                sValidEventRam   <= '1';
+                    if iFULL = '0' then
+                        oER_WE <= '1';
+
+                        if sLW_Adc = pADC_NUM - 1 then
+                            if sLW_StripCnt = pADC_STRIPS - 1 then
+                                sLW_StripCnt <= 0;
+                                -- EVENT RESET, if another trigger has arrived during RAM SAVING IT WILL CONTINUE TO ACQUIRE DATA.
+                                if sEvent_Running = '0' then
+                                    sCalRst   <= '1';        -- JUST A SAFETY RESET
+                                    sLW_State <= IDLE;
+                                    oCLUST_ENABLE <= '1';    -- TEST TO ENABLE CLUSTERING.
+                                    sValidEventRam   <= '1';
+                                else
+                                    sLW_State <= EVENT;
+                                    oCLUST_ENABLE <= '1';    -- TEST TO ENABLE CLUSTERING.
+                                    sValidEventRam   <= '1';
+                                end if;
                             else
+                                sLW_Adc      <= 0;
                                 sLW_State <= EVENT;
-                                oCLUST_ENABLE <= '1';    -- TEST TO ENABLE CLUSTERING.
-                                sValidEventRam   <= '1';
+                                sLW_StripCnt <= sLW_StripCnt + 1;
                             end if;
                         else
-                            sLW_Adc      <= 0;
-                            sLW_State    <= EVENT;
-                            sLW_StripCnt <= sLW_StripCnt + 1;
+                            sLW_Adc <= sLW_Adc + 1;
                         end if;
-                    else
-                        sLW_Adc <= sLW_Adc + 1;
                     end if;
                 when others => sLW_State <= IDLE; --@suppress
             end case;
