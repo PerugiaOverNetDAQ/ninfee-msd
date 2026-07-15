@@ -761,6 +761,41 @@ package FOOTpackage is
     );
   end component LadderWrapper;
 
+  component ClusterModule is
+    generic (
+      pADC_NUM        : natural := cTOTAL_ADCS;                           --!Numero di ADC
+      pADC_STRIPS     : natural := cADC_CHANNELS;                         --!Numero di canali per ADC
+      pDATA_WIDTH     : natural := cADC_DATA_WIDTH;                       --!Larghezza dati della EVENT RAM
+      pUSEDW_WIDTH    : natural := ceil_log2(cTOTAL_ADCS*cADC_CHANNELS)   --!Larghezza indirizzo lineare dell'evento
+    );
+    port (
+      iCLK                : in  std_logic;
+      iRST                : in  std_logic;
+
+      iTRIG               : in  std_logic;
+
+      -- INTERFACCIA RAM EVENTO E CALIBRAZIONE
+      -- Indirizzo ed enable di lettura vengono campionati su rising edge
+      -- iRD_DATA, iHT, iLT e iFLG sono validi al rising edge successivo.
+      iRD_DATA            : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
+      oRD_ADDR            : out std_logic_vector(pUSEDW_WIDTH-1 downto 0);
+      oRD_EN              : out std_logic;
+      iREADY              : in  std_logic;
+
+      iHT                 : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
+      iLT                 : in  std_logic_vector(pDATA_WIDTH-1 downto 0);
+      iFLG                : in  std_logic_vector(3 downto 0);
+
+      -- USCITA FIFO STREAMING
+      -- Il bit pDATA_WIDTH identifica EOP
+      oWR_DATA            : out std_logic_vector(pDATA_WIDTH downto 0);
+      oWR_EN              : out std_logic;
+      iFULL               : in  std_logic;
+
+      oBUSY               : out std_logic;
+      oLOST               : out std_logic
+    );
+  end component ClusterModule;
 
 end package FOOTpackage;
 
