@@ -46,12 +46,15 @@ package FOOTpackage is
   constant cSMA_CALC_MODE         : natural := 2;
   constant cN_EVENT               : natural := 1024; -- Number of events for each calib stare (ped, sigraw, sig)
 
+  -- - - - - -  ** Clustering ** - - - - - -
+  constant cMAX_CLUSTER_WORDS     : natural := 128;
+  constant cADDRESS_FIFO_DEPTH    : natural := 64;
 
   -- Costanti moltiplicative
   constant cRHT              : std_logic_vector(cADC_DATA_WIDTH-1 downto 0) := "0000000101000000"; -- 10  in ADC32
   constant cHTH              : std_logic_vector(cADC_DATA_WIDTH-1 downto 0) := "0000000001110000"; -- 3.5 in ADC32
   constant cLTH              : std_logic_vector(cADC_DATA_WIDTH-1 downto 0) := "0000000000110000"; -- 1.5 in ADC32
-  constant cMINVAL	         : std_logic_vector(15 downto 0) := x"C000";
+  
 
   -- Calibration arrays
   type t_FOOT_adc_data is array (0 to cADC_CHANNELS-1) of std_logic_vector(cADC_DATA_WIDTH-1 downto 0);            
