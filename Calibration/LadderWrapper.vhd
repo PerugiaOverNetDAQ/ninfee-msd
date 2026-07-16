@@ -228,11 +228,10 @@ begin
                             (iFULL = '1') else
                    '0';
 
-    -- External calibration RAM access is blocked as soon as the system owns,
-    -- or is about to own, the calibration memories.
-    sCalRamExtAccess <= '1' when sSystemBusy = '0' else
-                        '0';
-
+    -- External calibration RAM access depends only on memory ownership.
+    -- iFULL still contributes to oBUSY, but it must not revoke the read ports
+    -- while ClusterModule is scanning a completed event under backpressure.
+    sCalRamExtAccess <= '1' when sLW_State = IDLE and sCalRst = '0' and sEvent_Running = '0' and iTRIG = '0' else '0';
     oBUSY <= sSystemBusy;
 
     sTrigAccepted <= '1' when (iTRIG = '1') and (iFULL = '0') else
