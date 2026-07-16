@@ -228,6 +228,7 @@ begin
             oTRIG_L     => oTrigLost,
             oCLUST_ENABLE  => oCEnable,
             oVALID_EVT_RAM => oVERAM,
+            oEVENT_ACCEPTED => open,
 
             iCAL_ENABLE  => iCalibrationEnable,
             iEVT_ENABLE  => iEventEnable,

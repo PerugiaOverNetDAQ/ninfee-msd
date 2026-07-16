@@ -36,6 +36,7 @@ entity LadderWrapper is
         -- CLuster ENABLE
         oCLUST_ENABLE           : out std_logic;
         oVALID_EVT_RAM          : out std_logic;
+        oEVENT_ACCEPTED         : out std_logic;    -- Current trigger starts a normal (non-calibration) event
 
         -- Enable and trigger from front-end
         iCAL_ENABLE             : in  std_logic;    -- '1': calibration; '0': no calibration
@@ -239,6 +240,14 @@ begin
 
     -- Valid Event ram for processed events.
     oVALID_EVT_RAM <= sValidEventRam;
+
+    -- Per-trigger packet classification.
+    -- Calibration triggers keep the normal RAW packet length.
+    oEVENT_ACCEPTED <= '1' when (sLW_State = IDLE) and
+                               (sTrigAccepted = '1') and
+                               (sCalPending = '0') and
+                               (iEVT_ENABLE = '1') else
+                       '0';
 
     sIsCalibrating <= '1' when (sLW_State = CALIB) or (sLW_State = C1) else '0';
 

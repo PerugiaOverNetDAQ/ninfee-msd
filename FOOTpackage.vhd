@@ -730,6 +730,7 @@ package FOOTpackage is
         -- CLuster ENABLE
         oCLUST_ENABLE           : out std_logic;
         oVALID_EVT_RAM          : out std_logic;
+        oEVENT_ACCEPTED         : out std_logic;
 
         -- Enable and trigger from front-end
         iCAL_ENABLE             : in  std_logic;    -- '1': calibration; '0': no calibration
