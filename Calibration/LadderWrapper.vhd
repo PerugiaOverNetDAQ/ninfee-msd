@@ -37,6 +37,7 @@ entity LadderWrapper is
         oCLUST_ENABLE           : out std_logic;
         oVALID_EVT_RAM          : out std_logic;
         oEVENT_ACCEPTED         : out std_logic;    -- Current trigger starts a normal (non-calibration) event
+        oCALIB_TYPE             : out std_logic_vector(1 downto 0); -- 00 PED, 01 SIGRAW, 10 SIGMA, 11 FLG
 
         -- Enable and trigger from front-end
         iCAL_ENABLE             : in  std_logic;    -- '1': calibration; '0': no calibration
@@ -240,6 +241,7 @@ begin
 
     -- Valid Event ram for processed events.
     oVALID_EVT_RAM <= sValidEventRam;
+    oCALIB_TYPE    <= sCWState;
 
     -- Per-trigger packet classification.
     -- Calibration triggers keep the normal RAW packet length.
@@ -707,6 +709,10 @@ begin
                     elsif sCWState = "10" then
                         sPedSub_En <= '1';
                         sCN_En     <= '1';
+                    else
+                        -- Flag computation/dump does not consume event data.
+                        sPedSub_En <= '0';
+                        sCN_En     <= '0';
                     end if;
 
                     if sCWCalBusy_Falling = '1' then -- If calibration is over keep the notification to exit when fifo is empty

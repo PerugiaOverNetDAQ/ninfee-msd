@@ -731,6 +731,7 @@ package FOOTpackage is
         oCLUST_ENABLE           : out std_logic;
         oVALID_EVT_RAM          : out std_logic;
         oEVENT_ACCEPTED         : out std_logic;
+        oCALIB_TYPE             : out std_logic_vector(1 downto 0);
 
         -- Enable and trigger from front-end
         iCAL_ENABLE             : in  std_logic;    -- '1': calibration; '0': no calibration

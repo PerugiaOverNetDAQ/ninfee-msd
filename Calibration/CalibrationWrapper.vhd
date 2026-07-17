@@ -701,6 +701,7 @@ begin
 
                 sFlag_ReadAddr  <= fFlagAddr('0', 0);
                 sFlag_WriteAddr <= fFlagAddr('0', 0);
+                sMCMode         <= "11";   -- FLAG computation and table dump
 
                 sCalibState <= RSF_FETCH;
               end if;

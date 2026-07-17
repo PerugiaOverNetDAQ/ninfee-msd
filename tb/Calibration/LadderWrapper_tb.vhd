@@ -229,6 +229,7 @@ begin
             oCLUST_ENABLE  => oCEnable,
             oVALID_EVT_RAM => oVERAM,
             oEVENT_ACCEPTED => open,
+            oCALIB_TYPE    => open,
 
             iCAL_ENABLE  => iCalibrationEnable,
             iEVT_ENABLE  => iEventEnable,
