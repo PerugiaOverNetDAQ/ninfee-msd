@@ -41,7 +41,11 @@ entity LadderWrapper is
 
         -- Enable and trigger from front-end
         iCAL_ENABLE             : in  std_logic;    -- '1': calibration; '0': no calibration
+        iCAL_ABORT              : in  std_logic;    -- Abort an incomplete calibration without clearing RAM
         iEVT_ENABLE             : in  std_logic;    -- '1': event run, if not cal; '0': no run
+        oCALIB_VALID            : out std_logic;    -- Sticky until iRST
+        oCALIB_DONE             : out std_logic;    -- One-clock completion pulse for calibration
+        oCALIB_TRIG_READY       : out std_logic;    -- Safe window for calibration triggers
 
         iTHR_VALID              : in std_logic;
         iK1                     : in std_logic_vector(pDATA_WIDTH-1 downto 0);
@@ -71,7 +75,7 @@ end entity LadderWrapper;
 
 architecture Behavioral of LadderWrapper is
 
-    signal sCalRst, sRst : std_logic;
+    signal sCalRst, sRst, sControlRst : std_logic;
 
     -- FSM states
     type   sLWState_type is (IDLE, CALIB, C1, EVENT, WE, E1);
@@ -151,6 +155,7 @@ architecture Behavioral of LadderWrapper is
     signal sCWCalBusy_D         : std_logic := '0';
     signal sCWCalBusy_Falling   : std_logic := '0';
     signal sCWCalBusy_FallLatch : std_logic;
+    signal sCWTrigReady         : std_logic;
 
     -- Calibration result mirror toward Event RAM
     signal sCW_ER_WE             : std_logic;
@@ -175,6 +180,8 @@ architecture Behavioral of LadderWrapper is
     signal sCAL_edge    : std_logic := '0';
     signal sCalPending  : std_logic := '0';
     signal sCalInternal : std_logic := '0'; -- combinational start pulse on the first useful trigger
+    signal sCalibValid  : std_logic := '0';
+    signal sCalWasComputation : std_logic := '0';
     signal sIsCalibrating : std_logic;
 
     -- K save
@@ -220,7 +227,11 @@ architecture Behavioral of LadderWrapper is
     signal sSMA_CAL_flush         : std_logic_vector(pADC_NUM-1 downto 0);
 
 begin
-    sRst    <= sCalRst or iRST;
+    -- iCAL_ABORT clears only per-operation datapaths.  CalibrationWrapper
+    -- keeps CAL_RAM on the external iRST domain, so a completed calibration is
+    -- never destroyed merely because STOP was requested.
+    sControlRst <= iRST or iCAL_ABORT;
+    sRst        <= sCalRst or sControlRst;
 
     -- If i get a putD while in IDLE it means that data has been lost
     oTRIG_L <= '1' when (sLW_State = IDLE and sPUTD_edge = '1') or sTrig_Lost = '1' else
@@ -236,12 +247,28 @@ begin
     sCalRamExtAccess <= '1' when sLW_State = IDLE and sCalRst = '0' and sEvent_Running = '0' and iTRIG = '0' else '0';
     oBUSY <= sSystemBusy;
 
-    sTrigAccepted <= '1' when (iTRIG = '1') and (iFULL = '0') else
+    -- The top-level busy already enforces this window.  Repeat the condition
+    -- locally so an unexpected trigger cannot overlap a calibration readout.
+    sTrigAccepted <= '1' when (iTRIG = '1') and (iFULL = '0') and
+                              (iCAL_ABORT = '0') and
+                              (sIsCalibrating = '0' or
+                               (sCWTrigReady = '1' and
+                                sEvent_Running = '0')) else
                      '0';
 
     -- Valid Event ram for processed events.
     oVALID_EVT_RAM <= sValidEventRam;
     oCALIB_TYPE    <= sCWState;
+    oCALIB_VALID   <= sCalibValid;
+    oCALIB_DONE    <= sCWCalBusy_Falling and not iCAL_ABORT;
+    -- sCWTrigReady describes the calculation engine, while sEvent_Running
+    -- describes the detector readout that feeds it.  Both must be idle before
+    -- another calibration trigger can be admitted.
+    oCALIB_TRIG_READY <= '1' when iCAL_ABORT = '0' and
+        sEvent_Running = '0' and (
+        (sLW_State = IDLE and sCalPending = '1') or
+        (sIsCalibrating = '1' and sCWTrigReady = '1')) else
+        '0';
 
     -- Per-trigger packet classification.
     -- Calibration triggers keep the normal RAW packet length.
@@ -261,6 +288,7 @@ begin
                              (sCalPending = '1') and
                              (sTrigAccepted = '1') else
                     '0';
+
 -- SMA DEC
     SMA_WRAP : StreamingMedianOfMedianWrap
         generic map(
@@ -379,13 +407,18 @@ begin
         )
         port map(
             iCLK              => iCLK,
-            iRST              => sRst,
+            -- Keep the calibration RAMs and runtime thresholds alive across
+            -- the wrapper's per-event/per-operation soft reset.  Only the
+            -- external detector reset invalidates stored calibration data.
+            iRST              => iRST,
+            iABORT            => iCAL_ABORT,
             iWORD             => sCWData,
             iPUTD             => sCWPutd,
             oMC_MODE          => sCWState,
             oMC_READY         => sCWReady,
             iCALIB_ENABLE     => sCalInternal,
             oCALIB_BUSY       => sCWCalBusy,
+            oTRIG_READY       => sCWTrigReady,
             iTRIG             => sTrigAccepted,
 
             oER_WE            => sCW_ER_WE,
@@ -498,9 +531,9 @@ begin
     oHTH.DATA    <= sHthOut_CW.DATA    when sCalRamExtAccess = '1' else (others => (others => '0'));
     oRHT.DATA    <= sRhtOut_CW.DATA    when sCalRamExtAccess = '1' else (others => (others => '0'));
 
-    PUTD_EDGE_PROC : process(iCLK, iRST)
+    PUTD_EDGE_PROC : process(iCLK, sControlRst)
     begin
-        if iRST = '1' then
+        if sControlRst = '1' then
             sPUTD_sync <= '0';
             sPUTD_prev <= '0';
             sPUTD_edge <= '0';
@@ -519,9 +552,9 @@ begin
         end if;
     end process PUTD_EDGE_PROC;
 
-    CAL_EDGE_PROC : process(iCLK, iRST)
+    CAL_EDGE_PROC : process(iCLK, sControlRst)
     begin
-        if iRST = '1' then
+        if sControlRst = '1' then
             sCAL_sync <= '0';
             sCAL_prev <= '0';
             sCAL_edge <= '0';
@@ -550,15 +583,22 @@ begin
         sK_state  <= IDLE;
 
     elsif rising_edge(iCLK) then
-        -- Calib request
-        if (sCAL_edge = '1') and (sIsCalibrating = '0') then
-            sCalPending <= '1';
-        end if;
+        -- Abort discards only unconsumed operation requests.  Threshold state
+        -- below is intentionally left running, because it belongs to the
+        -- persistent calibration RAM rather than to a single acquisition.
+        if iCAL_ABORT = '1' then
+            sCalPending <= '0';
+        else
+            if (sCAL_edge = '1') and (sIsCalibrating = '0') then
+                sCalPending <= '1';
+            end if;
 
-        -- Consume the pending request on the same first useful trigger that
-        -- is forwarded combinationally (see above) to CalibrationWrapper.
-        if (sLW_State = IDLE) and (sTrigAccepted = '1') and (sCalPending = '1') then
-            sCalPending  <= '0';
+            -- Consume the pending request on the same first useful trigger
+            -- that is forwarded combinationally to CalibrationWrapper.
+            if (sLW_State = IDLE) and (sTrigAccepted = '1') and
+               (sCalPending = '1') then
+                sCalPending <= '0';
+            end if;
         end if;
 
         -- Fetch of mult constants 
@@ -593,9 +633,9 @@ begin
     end process CAL_REQ_PROC;
 
     -- Find falling-edge of calibration busy 
-    BUSY_DELAY_PROC : process(iCLK, iRST)
+    BUSY_DELAY_PROC : process(iCLK, sControlRst)
     begin
-        if iRST = '1' then
+        if sControlRst = '1' then
             sCWCalBusy_D       <= '0';
             sCWCalBusy_Falling <= '0';
         elsif rising_edge(iCLK) then
@@ -604,10 +644,34 @@ begin
         end if;
     end process BUSY_DELAY_PROC;
 
-    -- Event running signal and data lost
-    RUNNING_BUSY_LOGIC_PROC : process(iCLK, iRST)
+    -- Calibration validity belongs to LadderWrapper rather than to
+    -- CalibrationWrapper because sCalRst is an internal per-operation reset.
+    -- Only the external detector-interface reset invalidates the RAM contents.
+    CAL_VALID_PROC : process(iCLK, iRST)
     begin
         if iRST = '1' then
+            sCalibValid       <= '0';
+            sCalWasComputation <= '0';
+        elsif rising_edge(iCLK) then
+            if iCAL_ABORT = '1' then
+                -- A started calculation already cleared valid.  If STOP came
+                -- before its first trigger, preserve the previous complete
+                -- calibration and only forget the operation.
+                sCalWasComputation <= '0';
+            elsif sCalInternal = '1' then
+                sCalWasComputation <= '1';
+                sCalibValid        <= '0';
+            elsif sCWCalBusy_Falling = '1' and sCalWasComputation = '1' then
+                sCalibValid <= '1';
+                sCalWasComputation <= '0';
+            end if;
+        end if;
+    end process CAL_VALID_PROC;
+
+    -- Event running signal and data lost
+    RUNNING_BUSY_LOGIC_PROC : process(iCLK, sControlRst)
+    begin
+        if sControlRst = '1' then
             sEvent_StripCnt <= 0;
             sEvent_Running  <= '0';
             sEvent_End      <= '0';
@@ -647,9 +711,9 @@ begin
         end if;
     end process RUNNING_BUSY_LOGIC_PROC;
 
-    LW_FSM : process(iCLK, iRST)
+    LW_FSM : process(iCLK, sControlRst)
     begin
-        if iRST = '1' then
+        if sControlRst = '1' then
             sLW_Adc              <= 0;
             sCWPutd              <= '0';
             sCWCalBusy_FallLatch <= '0';
@@ -678,7 +742,6 @@ begin
                     sPedSub_En <= '0';
                     sCN_En     <= '0';
 
-                    -- FIXME: iCalibration for the second time does not allow MC MODULE
                     if sTrigAccepted = '1' then
                         if sCalPending = '1' then
                             sLW_State <= CALIB;
@@ -710,7 +773,7 @@ begin
                         sPedSub_En <= '1';
                         sCN_En     <= '1';
                     else
-                        -- Flag computation/dump does not consume event data.
+                        -- Flag computation/table readout does not consume event data.
                         sPedSub_En <= '0';
                         sCN_En     <= '0';
                     end if;

@@ -469,7 +469,6 @@ package FOOTpackage is
     port (
       iCLK                    : in  std_logic;
       iRST                    : in  std_logic;
-
       -- THR CHANGE
       iLTH                    : in std_logic_vector(pDATA_WIDTH-1 downto 0);
       iHTH                    : in std_logic_vector(pDATA_WIDTH-1 downto 0);
@@ -655,6 +654,7 @@ package FOOTpackage is
     port (
       iCLK                    : in  std_logic;
       iRST                    : in  std_logic;
+      iABORT                  : in  std_logic;                                        -- Abort current operation without clearing calibration RAM
 
       iWORD                   : in  t_FOOT_lef_data;                                  -- Input words - ADC8
       iPUTD                   : in  std_logic;                                        -- Input word  - valid
@@ -664,6 +664,7 @@ package FOOTpackage is
       -- Enable and trigger from front-end
       iCALIB_ENABLE           : in  std_logic;                                        -- Comes from LadderProcessingWrapper
       oCALIB_BUSY             : out std_logic;                                        -- Gives to Ladder Wrapper the status of calib
+      oTRIG_READY             : out std_logic;                                        -- Calibration can accept a new detector trigger
       iTRIG                   : in  std_logic;                                        -- Comes From front END
 
       -- Calibration result mirror toward Event RAM.
@@ -735,7 +736,11 @@ package FOOTpackage is
 
         -- Enable and trigger from front-end
         iCAL_ENABLE             : in  std_logic;    -- '1': calibration; '0': no calibration
+        iCAL_ABORT              : in  std_logic;    -- Abort an incomplete calibration, preserving stored RAM
         iEVT_ENABLE             : in  std_logic;    -- '1': event run, if not cal; '0': no run
+        oCALIB_VALID            : out std_logic;    -- Sticky until iRST
+        oCALIB_DONE             : out std_logic;    -- One-clock completion pulse for calibration
+        oCALIB_TRIG_READY       : out std_logic;    -- Safe window for calibration triggers
 
         iTHR_VALID              : in std_logic;
         iK1                     : in std_logic_vector(pDATA_WIDTH-1 downto 0);

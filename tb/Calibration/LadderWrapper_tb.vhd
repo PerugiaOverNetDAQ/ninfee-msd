@@ -58,6 +58,7 @@ architecture tb of LadderWrapper_tb is
     signal iTrig              : std_logic := '0';
     signal iFull              : std_logic := '0';
     signal iCalibrationEnable : std_logic := '0';
+    signal iCalibrationAbort  : std_logic := '0';
     signal iHostControl       : std_logic_vector(7 downto 0) := (others => '0');
     signal iEventEnable       : std_logic := '1'; -- enable EVENT path--@suppress
 
@@ -232,8 +233,12 @@ begin
             oCALIB_TYPE    => open,
 
             iCAL_ENABLE  => iCalibrationEnable,
+            iCAL_ABORT   => iCalibrationAbort,
             iEVT_ENABLE  => iEventEnable,
-            iHOST_CONTROL => iHostControl,
+            oCALIB_VALID => open,
+            oCALIB_DONE  => open,
+            oCALIB_TRIG_READY => open,
+            iTHR_VALID  => iHostControl(7),
             iK1         => sK1,
             iK2         => sK2,   
             oBUSY       => oLadderBusy,

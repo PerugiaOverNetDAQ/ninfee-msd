@@ -26,6 +26,7 @@ entity CalibrationWrapper is
   port (
     iCLK                    : in  std_logic;
     iRST                    : in  std_logic;
+    iABORT                  : in  std_logic;                                        -- Reset the active operation, not calibration RAM
 
     iWORD                   : in  t_FOOT_lef_data;                                  -- Input words - ADC8
     iPUTD                   : in  std_logic;                                        -- Input word  - valid
@@ -35,6 +36,7 @@ entity CalibrationWrapper is
     -- Enable and trigger from front-end
     iCALIB_ENABLE           : in  std_logic;                                        -- Comes from LadderProcessingWrapper
     oCALIB_BUSY             : out std_logic;                                        -- Gives to Ladder Wrapper the status of calib
+    oTRIG_READY             : out std_logic;                                        -- Calibration can accept a new detector trigger
     iTRIG                   : in  std_logic;                                        -- Comes From front END
 
     -- Calibration result mirror toward Event RAM.
@@ -95,6 +97,7 @@ architecture Behavioral of CalibrationWrapper is
   );
 
   signal sCalibState : state_type;
+  signal sOperationRst : std_logic;
   attribute syn_encoding of sCalibState : signal is "onehot";
 
   ----------------------------------------------------------------------------
@@ -188,10 +191,22 @@ architecture Behavioral of CalibrationWrapper is
   end function;
 
 begin
+  -- STOP may abort a partially acquired calibration. Calculation and control state are reset, while CAL_RAM sees only iRST and so keeps
+  -- the last complete calibration (its validity is controlled by LadderWrapper).
+  sOperationRst <= iRST or iABORT;
+
 
   oMC_READY   <= sMCReady;
   oMC_MODE    <= sMCMode;
   oCALIB_BUSY <= '1' when sCalibState /= IDLE else '0';
+  oTRIG_READY <= '1' when
+    sCalibState = WAIT_PEDESTAL or
+    sCalibState = WAIT_SIGRAW or
+    sCalibState = WAIT_SIGMA or
+    ((sCalibState = PEDESTAL or
+      sCalibState = SIGRAW or
+      sCalibState = SIGMA) and sMCReady = '1') else
+    '0';
 
   ----------------------------------------------------------------------------
   -- RAM read-address multiplexing
@@ -271,7 +286,7 @@ begin
     )
     port map(
       iCLK        => iCLK,
-      iRST        => iRST,
+      iRST        => sOperationRst,
       iSQRT_MSG   => sToSQRT_MSG,
       iSQRT_Start => sToSQRT_Start,
       oSQRT_MSG   => sFromSQRT_MSG,
@@ -357,7 +372,7 @@ begin
     )
     port map(
       iCLK        => iCLK,
-      iRST        => iRST,
+      iRST        => sOperationRst,
       iWORD       => sWord,
       iPUTD       => iPUTD,
       iENABLE     => sMCEnable,
@@ -406,49 +421,52 @@ begin
     sFlgIn.WADDR      <= (others => '0');
     sFlgIn.WE         <= '0';
 
-    if sCalibState = IDLE then
-      sPedIn.DATA    <= iPED.DATA;
-      sPedIn.WADDR   <= iPED.WADDR;
-      sPedIn.WE      <= iPED.WE;
+    -- Mask every write in the abort window: the state machines reset asynchronously, but no residual calculation result may reach CAL_RAM.
+    if iABORT = '0' then
+      if sCalibState = IDLE then
+        sPedIn.DATA    <= iPED.DATA;
+        sPedIn.WADDR   <= iPED.WADDR;
+        sPedIn.WE      <= iPED.WE;
 
-      sSigRawIn.DATA  <= iSIGRAW.DATA;
-      sSigRawIn.WADDR <= iSIGRAW.WADDR;
-      sSigRawIn.WE    <= iSIGRAW.WE;
+        sSigRawIn.DATA  <= iSIGRAW.DATA;
+        sSigRawIn.WADDR <= iSIGRAW.WADDR;
+        sSigRawIn.WE    <= iSIGRAW.WE;
 
-      sSigIn.DATA    <= iSIG.DATA;
-      sSigIn.WADDR   <= iSIG.WADDR;
-      sSigIn.WE      <= iSIG.WE;
+        sSigIn.DATA    <= iSIG.DATA;
+        sSigIn.WADDR   <= iSIG.WADDR;
+        sSigIn.WE      <= iSIG.WE;
 
-      sFlgIn.DATA    <= iFLG.DATA;
-      sFlgIn.WADDR   <= iFLG.WADDR;
-      sFlgIn.WE      <= iFLG.WE;
-    else
-      if sMC_WEN = '1' then
-        case sMC_WA(pUSEDW_WIDTH+1 downto pUSEDW_WIDTH) is
-          when "00" =>
-            sPedIn.DATA  <= sMC_Data;
-            sPedIn.WADDR <= sMC_WA(pUSEDW_WIDTH-1 downto 0);
-            sPedIn.WE    <= '1';
+        sFlgIn.DATA    <= iFLG.DATA;
+        sFlgIn.WADDR   <= iFLG.WADDR;
+        sFlgIn.WE      <= iFLG.WE;
+      else
+        if sMC_WEN = '1' then
+          case sMC_WA(pUSEDW_WIDTH+1 downto pUSEDW_WIDTH) is
+            when "00" =>
+              sPedIn.DATA  <= sMC_Data;
+              sPedIn.WADDR <= sMC_WA(pUSEDW_WIDTH-1 downto 0);
+              sPedIn.WE    <= '1';
 
-          when "01" =>
-            sSigRawIn.DATA  <= sMC_Data;
-            sSigRawIn.WADDR <= sMC_WA(pUSEDW_WIDTH-1 downto 0);
-            sSigRawIn.WE    <= '1';
+            when "01" =>
+              sSigRawIn.DATA  <= sMC_Data;
+              sSigRawIn.WADDR <= sMC_WA(pUSEDW_WIDTH-1 downto 0);
+              sSigRawIn.WE    <= '1';
 
-          when "10" =>
-            sSigIn.DATA  <= sMC_Data;
-            sSigIn.WADDR <= sMC_WA(pUSEDW_WIDTH-1 downto 0);
-            sSigIn.WE    <= '1';
+            when "10" =>
+              sSigIn.DATA  <= sMC_Data;
+              sSigIn.WADDR <= sMC_WA(pUSEDW_WIDTH-1 downto 0);
+              sSigIn.WE    <= '1';
 
-          when others =>
-            null;
-        end case;
-      end if;
+            when others =>
+              null;
+          end case;
+        end if;
 
-      if sFlgWriteWE = '1' then
-        sFlgIn.DATA  <= sFlgWriteData;
-        sFlgIn.WADDR <= sFlag_WriteAddr;
-        sFlgIn.WE    <= '1';
+        if sFlgWriteWE = '1' then
+          sFlgIn.DATA  <= sFlgWriteData;
+          sFlgIn.WADDR <= sFlag_WriteAddr;
+          sFlgIn.WE    <= '1';
+        end if;
       end if;
     end if;
   end process;
@@ -456,9 +474,9 @@ begin
   ----------------------------------------------------------------------------
   -- PROCESS FOR SMA VALID
   ----------------------------------------------------------------------------
-  process(iCLK, iRST)
+  process(iCLK, sOperationRst)
   begin
-    if iRST = '1' then
+    if sOperationRst = '1' then
       sSMA_Valid_latched <= (others => '0');
     elsif rising_edge(iCLK) then
       if sSMA_Valid_rst = '1' then
@@ -474,9 +492,9 @@ begin
   ----------------------------------------------------------------------------
   -- Busy edge for MultiCalib
   ----------------------------------------------------------------------------
-  process(iCLK, iRST)
+  process(iCLK, sOperationRst)
   begin
-    if iRST = '1' then
+    if sOperationRst = '1' then
       sMCBusy_d       <= '0';
       sMCBusy_falling <= '0';
     elsif rising_edge(iCLK) then
@@ -488,10 +506,10 @@ begin
   ----------------------------------------------------------------------------
   -- MAIN FSM
   ----------------------------------------------------------------------------
-  process(iCLK, iRST)
+  process(iCLK, sOperationRst)
     variable vFlagData : t_FOOT_lef_data;
   begin
-    if iRST = '1' then
+    if sOperationRst = '1' then
       sCalibState      <= IDLE;
 
       sMCEnable        <= '0';
@@ -701,7 +719,7 @@ begin
 
                 sFlag_ReadAddr  <= fFlagAddr('0', 0);
                 sFlag_WriteAddr <= fFlagAddr('0', 0);
-                sMCMode         <= "11";   -- FLAG computation and table dump
+                sMCMode         <= "11";   -- FLAG computation and mirror toward Event RAM
 
                 sCalibState <= RSF_FETCH;
               end if;
@@ -888,7 +906,7 @@ begin
             end if;
           end if;
 
-        -- Final FLG dump toward Event RAM
+        -- Final FLG mirror toward Event RAM
         when ER_FLG_INIT =>
           sER_Adc      <= 0;
           sER_Strip    <= 0;
