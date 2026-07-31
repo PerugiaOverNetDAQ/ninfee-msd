@@ -50,7 +50,7 @@ begin
     oAFULL  <= sAFull(0);
 
     gen_FIFO : for i in 0 to pADC_NUM-1 generate
-        FIFO : parametric_fifo_synch_MLAB
+        FIFO : parametric_fifo_synch
             generic map(
                 pWIDTH       => pDATA_WIDTH,
                 pDEPTH       => pADC_STRIPS,

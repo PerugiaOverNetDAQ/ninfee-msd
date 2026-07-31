@@ -174,10 +174,7 @@ architecture Behavioral of LadderWrapper is
     signal sCalRamExtAccess : std_logic;
     signal sTrigAccepted    : std_logic;
 
-    -- SIGNAL TO START CALIBRATING JUST ONCE FOR TESTING
-    signal sCAL_sync    : std_logic := '0';
-    signal sCAL_prev    : std_logic := '0';
-    signal sCAL_edge    : std_logic := '0';
+    -- Richiesta di calibrazione mantenuta fino al primo trigger utile.
     signal sCalPending  : std_logic := '0';
     signal sCalInternal : std_logic := '0'; -- combinational start pulse on the first useful trigger
     signal sCalibValid  : std_logic := '0';
@@ -455,6 +452,12 @@ begin
   -- SMA MUX
   process(all)
   begin
+    -- KEEP ZERO e mapping fuori IF delle route SMA
+    sSMA_CAL_o_data <= sSMA_o_data;
+    sSMA_CAL_valid  <= (others => '0');
+    sSMA_CN_o_data  <= sSMA_o_data;
+    sSMA_CN_valid   <= (others => '0');
+
     if sSMA_CAL_priority = '1' then
         -- FROM CAL TO SMA
         sSMA_rst        <= sSMA_CAL_rst;   
@@ -462,7 +465,6 @@ begin
         sSMA_i_data     <= sSMA_CAL_i_data;
         sSMA_flush      <= sSMA_CAL_flush;
         -- FROM SMA TO CAL
-        sSMA_CAL_o_data <= sSMA_o_data;
         sSMA_CAL_valid  <= sSMA_valid;
     else
         -- FROM CN TO SMA
@@ -471,7 +473,6 @@ begin
         sSMA_i_data     <= sSMA_CN_i_data;
         sSMA_flush      <= sSMA_CN_flush;
         -- FROM SMA TO CN
-        sSMA_CN_o_data  <= sSMA_o_data;
         sSMA_CN_valid   <= sSMA_valid;
     end if;
   end process;
@@ -552,25 +553,6 @@ begin
         end if;
     end process PUTD_EDGE_PROC;
 
-    CAL_EDGE_PROC : process(iCLK, sControlRst)
-    begin
-        if sControlRst = '1' then
-            sCAL_sync <= '0';
-            sCAL_prev <= '0';
-            sCAL_edge <= '0';
-        elsif rising_edge(iCLK) then
-            sCAL_prev <= sCAL_sync;
-            sCAL_sync <= iCAL_ENABLE;
-
-            if (sCAL_sync = '1' and sCAL_prev = '0') then
-                sCAL_edge <= '1';
-            else
-                sCAL_edge <= '0';
-            end if;
-
-        end if;
-    end process CAL_EDGE_PROC;
-
     CAL_REQ_PROC : process(iCLK, iRST)
     begin
     if iRST = '1' then
@@ -589,7 +571,11 @@ begin
         if iCAL_ABORT = '1' then
             sCalPending <= '0';
         else
-            if (sCAL_edge = '1') and (sIsCalibrating = '0') then
+            -- CAL_ENABLE è un handshake a livello: il chiamante lo mantiene
+            -- alto finché oCALIB_TRIG_READY conferma che la richiesta è stata
+            -- memorizzata. In questo modo un impulso non può perdersi durante
+            -- reset o propagazione attraverso i wrapper.
+            if (iCAL_ENABLE = '1') and (sIsCalibrating = '0') then
                 sCalPending <= '1';
             end if;
 
