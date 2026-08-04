@@ -241,8 +241,8 @@ begin
 
           if (sMCMode = "01") or (sMCMode = "10") then
             for adc in 0 to pADC_NUM-1 loop
-              oSQRT_MSG(adc) <= "000000" & sAccPipe(adc)(pACC_WIDTH-1 downto 6); -- @suppress -- ADC1024 to ROOT
-                -- ACC in ADC64 ||000000 bbbb kkkk kkkk kkkk xxxx xxyy yy||yy yyyy
+              oSQRT_MSG(adc) <= "00" & sAccPipe(adc)(pACC_WIDTH-1 downto 2); -- @suppress -- ADC1024 to ROOT
+              -- ACC in ADC4  ||00 bbbb bbxx xxxx xxxx xxxx yyaa aaaa aa||aa
             end loop;
           end if;
 

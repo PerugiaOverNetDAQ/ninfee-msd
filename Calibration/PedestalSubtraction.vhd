@@ -85,10 +85,11 @@ begin
 
                 -- Altrimenti PASS
                 -- FOR AD7276 iWORD is : 00 xxxx xxxx xxxx 00. Data is ADC4, already.
+                -- FOR LTC2313 iWORD is : 00 xxxx xxxx xxxx xx. Data is in ADC
                 elsif iPUTD = '1' then
                   -- Passthrough based on ADC num
                   for i in 0 to pADC_NUM - 1 loop
-                    oQ(i) <= iDATA(i)(pDATA_WIDTH-2 downto 0) & '0'; --@suppress ADC8
+                    oQ(i) <= iDATA(i)(pDATA_WIDTH-2 downto 0) & '0'; --@suppress ADC2
                   end loop;
 
                   oPUTD <= '1';
@@ -115,9 +116,10 @@ begin
                 -- Se è arrivato un dato e ho immagazzinato il piedistallo corretto allora:
                 if iPUTD = '1' and sW = 2 then
                     -- FOR AD7276 iWORD is : 00 xxxx xxxx xxxx 00. Data is ADC4, already.
+                    -- FOR LTC2313 iWORD is : 00 xxxx xxxx xxxx xx. Data is in ADC
                     -- Subtraction based on ADC num
                     for i in 0 to pADC_NUM - 1 loop
-                        oQ(i) <= std_logic_vector(signed(iDATA(i)(pDATA_WIDTH-2 downto 0) & '0') - signed(sPed(i))); -- ADC8
+                        oQ(i) <= std_logic_vector(signed(iDATA(i)(pDATA_WIDTH-2 downto 0) & '0') - signed(sPed(i))); -- ADC2
                     end loop;
 
                     oPUTD   <= '1';

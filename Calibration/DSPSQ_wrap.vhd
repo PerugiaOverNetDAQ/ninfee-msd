@@ -15,8 +15,8 @@ entity DSPSQ_wrap is
         pADC_NUM    : natural := cTOTAL_ADCS
     );
     port (
-        iDATA   : in  t_FOOT_lef_data; --ADC8   xxx
-        oSQUARE : out t_FOOT_lef_data  --ADC64  xxx xxx
+        iDATA   : in  t_FOOT_lef_data; --ADC2   x
+        oSQUARE : out t_FOOT_lef_data  --ADC4   xx
     );
 end entity DSPSQ_wrap;
 
