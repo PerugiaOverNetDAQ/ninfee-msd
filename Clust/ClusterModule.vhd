@@ -374,14 +374,18 @@ begin
               -- sicurezza per non interrompere un cluster con una strip morta.
               if signed(iRD_DATA) > signed(iHT) then
                 vNewP0(cPIPE_HT_BIT) := '1';
-              elsif iFLG /= "0000" then
-                vNewP0(cPIPE_HT_BIT) := '1';
               end if;
 
-              if signed(iRD_DATA) > signed(iLT) and iFLG = "0000" then
+              if signed(iRD_DATA) > signed(iLT) then
                 vNewP0(cPIPE_LT_BIT) := '1';
               end if;
 
+              -- Se i flag non sono tutti a zero, alzo LT e abbasso HT
+              if iFLG /= "0000" then
+                vNewP0(cPIPE_HT_BIT) := '0';
+                vNewP0(cPIPE_LT_BIT) := '1';
+              end if;
+              
               -- LIMITER IMPOSTO PER I DATI
               -- Come nel ClusterModule originale, con formato standard a
               -- 16 bit cMIN_DATA corrisponde a x"C000".
